@@ -1,0 +1,6 @@
+{
+  "name": "LUSTY GLOBAL VIP",
+  "description": "Verified VIP guests chat in real-time, propose rendezvous, and enquire about rates and locations in an immersive, secure live lounge room.",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+html, body, #root {
+  background-color: #09090b !important;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden !important;
+  scrollbar-gutter: stable both-edges;
+  color: #f4f4f5;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* 🎨 BRANDING THEME PRESETS OVERRIDES */
+
+/* Vintage Neon Theme */
+body.vintage-neon {
+  background-color: #0b0214 !important;
+}
+body.vintage-neon .bg-zinc-950,
+body.vintage-neon .bg-zinc-900,
+body.vintage-neon [class*="bg-[#0c0c0e]"],
+body.vintage-neon [class*="bg-[#0a0a0c]"] {
+  background-color: #120424 !important;
+  border-color: rgba(236, 72, 153, 0.25) !important;
+}
+body.vintage-neon .text-pink-500,
+body.vintage-neon .text-pink-600,
+body.vintage-neon .text-pink-400 {
+  color: #f43f5e !important; /* Rose Neon Glow */
+}
+body.vintage-neon .bg-pink-600 {
+  background-color: #f43f5e !important;
+}
+body.vintage-neon .border-zinc-900,
+body.vintage-neon .border-zinc-800 {
+  border-color: rgba(244, 63, 94, 0.15) !important;
+}
+
+/* Cyber Luxe Theme */
+body.cyber-luxe {
+  background-color: #07090e !important;
+}
+body.cyber-luxe .bg-zinc-950,
+body.cyber-luxe .bg-zinc-900,
+body.cyber-luxe [class*="bg-[#0c0c0e]"],
+body.cyber-luxe [class*="bg-[#0a0a0c]"] {
+  background-color: #0d121c !important;
+  border-color: rgba(212, 175, 55, 0.2) !important;
+}
+body.cyber-luxe .text-pink-500,
+body.cyber-luxe .text-pink-600,
+body.cyber-luxe .text-pink-400 {
+  color: #e5c158 !important; /* Gold Luxe Accent */
+}
+body.cyber-luxe .bg-pink-600 {
+  background-color: #d4af37 !important;
+  color: #05070a !important;
+}
+body.cyber-luxe .border-pink-500 {
+  border-color: #d4af37 !important;
+}
+body.cyber-luxe .border-zinc-900,
+body.cyber-luxe .border-zinc-800 {
+  border-color: rgba(212, 175, 55, 0.1) !important;
+}
+
+/* Deep Void Theme */
+body.deep-void {
+  background-color: #000000 !important;
+}
+body.deep-void .bg-zinc-950,
+body.deep-void .bg-zinc-900,
+body.deep-void [class*="bg-[#0c0c0e]"],
+body.deep-void [class*="bg-[#0a0a0c]"],
+body.deep-void .bg-zinc-900/40 {
+  background-color: #050505 !important;
+  border-color: #1f1f1f !important;
+}
+body.deep-void .text-pink-500,
+body.deep-void .text-pink-600,
+body.deep-void .text-pink-400 {
+  color: #ffffff !important; /* Ultra minimalist white */
+}
+body.deep-void .bg-pink-600 {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+body.deep-void .border-pink-500 {
+  border-color: #ffffff !important;
+}
+body.deep-void .border-zinc-900,
+body.deep-void .border-zinc-800 {
+  border-color: #161616 !important;
+}
+
+/* Custom styles for perfect mobile-scrolling shorts */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 🟢 Unified dark custom scrollbar style to eliminate default browser tracks */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090b !important; /* Matches your dashboard background exactly */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a !important; /* Discreet Zinc-800 scroll capsule */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46 !important;
+}

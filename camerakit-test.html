@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Camera Kit Test Gallery</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen p-6 font-sans flex items-center justify-center">
+  <div class="w-full max-w-4xl mx-auto">
+    
+    <div class="flex justify-between items-center mb-6">
+      <div class="flex flex-col gap-1">
+        <h1 class="text-xl font-bold tracking-tight text-white">🎭 Snapchat Filter Engine</h1>
+        <p class="text-xs text-zinc-400">WebGL pipeline using v0.12.0 alpha mechanics</p>
+      </div>
+      <span id="status-badge" class="text-zinc-400 bg-zinc-900 px-2.5 py-1 rounded-full border border-zinc-800 text-xs font-mono">
+        Initializing...
+      </span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+      
+      <div class="md:col-span-2 bg-zinc-900/40 rounded-2xl border border-zinc-900 overflow-hidden relative aspect-[9/16] max-h-[600px] mx-auto w-full flex items-center justify-center shadow-2xl">
+        <canvas id="camera-kit-canvas" class="w-full h-full object-cover rounded-2xl"></canvas>
+      </div>
+      
+      <div class="bg-zinc-900/20 rounded-2xl border border-zinc-900 p-4">
+        <h2 class="text-xs font-bold tracking-wider text-zinc-500 uppercase mb-3 font-mono">Available Deck</h2>
+        <div id="filter-deck" class="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
+          <span class="text-xs text-zinc-600 font-mono animate-pulse">Awaiting bootstrap engine connection...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://sdk.snapkit.com/camera-kit/v0.12.0-alpha.1/camera-kit.js"></script>
+
+  <script>
+    // ⚠️ REPLACE THESE VALUES WITH YOUR SNAP CREDS FOR THE LIVE CONTEXT TEST
+    const CONFIG = {
+      apiToken: "YOUR_CAMERA_KIT_API_TOKEN",
+      groupId: "YOUR_LENS_GROUP_ID"
+    };
+
+    let activeSession = null;
+    let availableLenses = [];
+
+    async function bootstrapTestGallery() {
+      const canvasElement = document.getElementById("camera-kit-canvas");
+      const statusBadge = document.getElementById("status-badge");
+
+      try {
+        // 1. Fire up the base platform compiler handler wrapper instance
+        const cameraKit = await window.bootstrapCameraKit({ apiToken: CONFIG.apiToken });
+        
+        // 2. Allocate an active background processing session thread tied onto the surface canvas frame
+        activeSession = await cameraKit.createSession({ canvas: canvasElement });
+
+        // 3. Request background camera lens permission stream tracks with ideal constraints
+        const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: "user",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
+        });
+
+        // 🎯 THE CRITICAL RESOLUTION SYNC FIX:
+        // Extract the exact width and height the hardware webcam is actually broadcasting
+        const videoTrack = mediaStream.getVideoTracks()[0];
+        const settings = videoTrack.getSettings();
+        
+        // Force the internal canvas drawing context resolution to match the stream matrix perfectly
+        // For portrait views, we swap them so the coordinates map flawlessly
+        if (settings.aspectRatio && settings.aspectRatio < 1) {
+          canvasElement.width = settings.width || 720;
+          canvasElement.height = settings.height || 1280;
+        } else {
+          // If it's a wide landscape track, swap width/height matching your portrait canvas target
+          canvasElement.width = settings.height || 720;
+          canvasElement.height = settings.width || 1280;
+        }
+
+        console.log(`WebGL viewport canvas synchronized to: ${canvasElement.width}x${canvasElement.height}`);
+        
+        // Channel stream straight into the WebGL processing engine frame matrix arrays
+        activeSession.setVideoSource(mediaStream);
+        await activeSession.play();
+
+        // Update indicators
+        statusBadge.innerText = "Live Engine Active";
+        statusBadge.className = "text-emerald-400 bg-emerald-950/30 px-2.5 py-1 rounded-full border border-emerald-900/40 text-xs font-mono";
+
+        // 4. Download structural asset objects inventory directly out from target folder group
+        const groupResponse = await cameraKit.lensRepository.getLensGroup(CONFIG.groupId);
+        availableLenses = groupResponse.lenses || [];
+
+        renderFilterDeck();
+
+      } catch (error) {
+        console.error("CameraKit Engine failed to run bootstrap mapping loop:", error);
+        statusBadge.innerText = "Engine Connection Fault";
+        statusBadge.className = "text-rose-400 bg-rose-950/30 px-2.5 py-1 rounded-full border border-rose-900/40 text-xs font-mono";
+      }
+    }
+
+    // Renders the filter buttons deck
+    function renderFilterDeck() {
+      const deck = document.getElementById("filter-deck");
+      deck.innerHTML = ""; 
+
+      // Reset standard baseline options
+      deck.appendChild(createDeckButton("Normal Viewport (Wipe Effects)", () => activeSession.removeLens()));
+
+      if (availableLenses.length === 0) {
+        const info = document.createElement("p");
+        info.className = "text-xs text-zinc-500 font-mono italic p-2 text-center";
+        info.innerText = "No active lenses found in group bucket layout.";
+        deck.appendChild(info);
+      } else {
+        availableLenses.forEach((lens) => {
+          const btn = createDeckButton(lens.name, async () => {
+            try {
+              // Smoothly substitute active pipeline matrix values on click pass
+              await activeSession.applyLens(lens);
+              console.log(`Pipeline successfully mounted shader: ${lens.name}`);
+            } catch (err) {
+              console.error("Failed executing shader layout transition:", err);
+            }
+          });
+          deck.appendChild(btn);
+        });
+      }
+    }
+
+    function createDeckButton(text, clickAction) {
+      const btn = document.createElement("button");
+      btn.className = "w-full text-left bg-zinc-900 border border-zinc-800 text-zinc-300 font-bold text-xs px-4 py-3 rounded-xl hover:bg-zinc-800 transition font-sans truncate";
+      btn.innerText = text;
+      btn.addEventListener("click", clickAction);
+      return btn;
+    }
+
+    window.addEventListener("DOMContentLoaded", bootstrapTestGallery);
+  </script>
+</body>
+</html>

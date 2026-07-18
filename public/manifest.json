@@ -1,0 +1,8 @@
+{
+  "short_name": "LUSTY GLOBAL",
+  "name": "LUSTY GLOBAL VIP Platform",
+  "start_url": "/",
+  "background_color": "#000000",
+  "theme_color": "#120d1a",
+  "display": "standalone"
+}
