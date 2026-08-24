@@ -33,21 +33,45 @@ export function useHostMetrics(currentUserId: string) {
       if (!currentUserId) return;
 
       try {
-        // 1. Fetch payout rows from platform_ledger
-        const { data: ledgerData } = await supabase
-          .from('platform_ledger')
-          .select('amount, settlement_status')
-          .eq('recipient_id', currentUserId);
-        
+        // 1. Fetch payout rows from booking_ledgers or bookings or platform_ledger
+        let { data: ledgerData } = await supabase
+          .from('booking_ledgers')
+          .select('*')
+          .or(`companion_id.eq.${currentUserId},client_id.eq.${currentUserId}`);
+
+        if (!ledgerData || ledgerData.length === 0) {
+          const fallback = await supabase
+            .from('bookings')
+            .select('*')
+            .or(`companion_id.eq.${currentUserId},client_id.eq.${currentUserId}`);
+          if (fallback.data && fallback.data.length > 0) {
+            ledgerData = fallback.data;
+          }
+        }
+
+        if (!ledgerData || ledgerData.length === 0) {
+          const platLedger = await supabase
+            .from('platform_ledger')
+            .select('*')
+            .eq('recipient_id', currentUserId);
+          if (platLedger.data && platLedger.data.length > 0) {
+            ledgerData = platLedger.data.map((p: any) => ({
+              ...p,
+              status: p.settlement_status || p.status,
+              gross_amount: p.amount || p.gross_amount
+            }));
+          }
+        }
+
         let pendingSum = 0;
         let processingSum = 0;
         
-        ledgerData?.forEach(row => {
-          const amt = Number(row.amount || 0);
-          const status = String(row.settlement_status || '').toLowerCase();
-          if (status === 'pending') {
+        ledgerData?.forEach((row: any) => {
+          const amt = Number(row.gross_amount || row.amount || row.net_payout || 0);
+          const status = String(row.status || row.escrow_status || row.settlement_status || '').toLowerCase();
+          if (['pending', 'escrowed', 'paid_escrow', 'funded', 'held'].includes(status)) {
             pendingSum += amt;
-          } else if (status === 'processing') {
+          } else if (['processing', 'pending_transfer', 'active'].includes(status)) {
             processingSum += amt;
           }
         });

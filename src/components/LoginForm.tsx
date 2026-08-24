@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Eye, EyeOff, Lock, User, Flame } from 'lucide-react';
+import { Eye, EyeOff, Lock, User } from 'lucide-react';
+import { LustyGlobalLogo } from './LustyGlobalLogo';
 import { supabase } from '../lib/supabase';
 
 interface LoginFormProps {
@@ -167,14 +168,8 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
       
       <div className="mb-6 text-center">
         {/* ── 📱 UNIFIED LOGO BLOCK (MOBILE FRIENDLY) ── */}
-        <div className="flex items-center justify-center gap-2 select-none mb-2">
-          {/* Gold Flame Asset */}
-          <Flame className="w-5 h-5 text-[#eab308] fill-[#eab308] shrink-0" />
-          
-          {/* Pink to Purple Typography Styling */}
-          <span className="font-sans font-black text-sm uppercase tracking-wider bg-gradient-to-r from-[#ec4899] to-[#a855f7] bg-clip-text text-transparent">
-            Lusty VIP
-          </span>
+        <div className="flex items-center justify-center gap-2 select-none mb-3">
+          <LustyGlobalLogo size="sm" />
         </div>
         <h2 className="text-xl font-black uppercase tracking-wider text-white">
           {isSignUp ? 'Create VIP Account' : 'Welcome Back'}

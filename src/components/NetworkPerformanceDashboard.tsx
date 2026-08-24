@@ -1,5 +1,6 @@
 import { RequestPayoutButton } from './RequestPayoutButton';
 import { useHostMetrics } from '../hooks/useHostMetrics';
+import { formatMetricCount } from '../utils/formatMetrics';
 
 interface NetworkPerformanceDashboardProps {
   currentUserId: string;
@@ -61,7 +62,7 @@ export function NetworkPerformanceDashboard({ currentUserId, uiStats = {} }: Net
           <div className="bg-zinc-900/50 border border-pink-900/20 p-3.5 rounded-xl text-center">
             <div className="text-[9px] uppercase font-mono tracking-wider text-pink-500 mb-1">Followers</div>
             <div className="text-base font-bold text-pink-400 font-mono">
-              {metrics.totalFollowers.toLocaleString()}
+              {formatMetricCount(metrics.totalFollowers)}
             </div>
           </div>
 

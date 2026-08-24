@@ -24,7 +24,7 @@ export default function DirectBookingModal({ companion, onClose, onSubmitBooking
     e.preventDefault();
 
     const newBooking: Booking = {
-      id: `booking_${Date.now()}`,
+      id: crypto.randomUUID(),
       companionId: companion.id,
       date,
       time,

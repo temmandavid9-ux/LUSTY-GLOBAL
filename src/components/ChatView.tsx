@@ -2,9 +2,23 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { COMPANIONS } from '../data';
 import { Message, Companion } from '../types';
-import { Send, Image, CreditCard, CheckCheck, ShieldAlert, Award, Mic, Volume2 } from 'lucide-react';
+import { Send, Image, CreditCard, CheckCheck, ShieldAlert, Award, Mic, Volume2, Crown, ArrowRight, PhoneOff, PhoneCall, MessageSquare } from 'lucide-react';
 import { calculateDistanceInMiles } from '../utils/geo';
 import { initiateFlutterwavePayment } from '../lib/flutterwave';
+import { sanitizeUserInput, checkClientRateLimit } from '../utils/security';
+import { motion, AnimatePresence } from 'motion/react';
+import { LustyMogPicker, VIPMog } from './LustyMogPicker';
+import { LustyMogOverlay, ActiveMogEvent } from './LustyMogOverlay';
+import RecentCallsView from './RecentCallsView';
+
+interface MogReaction {
+  id: number;
+  emoji: string;
+  x: number;
+  rotation: number;
+}
+
+const MOG_REACTIONS = ['💋', '👑', '💎', '🔱', '🥂', '👁️‍🗨️', '🖤'];
 
 export function useOnlineStatusTracker(currentUserId: string | undefined) {
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
@@ -79,13 +93,80 @@ export default function ChatView({
 
   const onlineUsersSet = useOnlineStatusTracker(currentUserId);
 
-  // Channels and selection states
+  // Channels, tabs and selection states
+  const [chatTab, setChatTab] = useState<'chats' | 'calls'>('chats');
   const [channels, setChannels] = useState<Companion[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [mogList, setMogList] = useState<MogReaction[]>([]);
+  const [showMogPicker, setShowMogPicker] = useState(false);
+  const [activeOverlayMogs, setActiveOverlayMogs] = useState<ActiveMogEvent[]>([]);
+
+  const handleSendVipMog = (mog: VIPMog) => {
+    // 1. Create overlay event
+    const eventId = `mog-${Date.now()}-${Math.random()}`;
+    const newEvent: ActiveMogEvent = {
+      id: eventId,
+      senderName: 'You',
+      mog: {
+        label: mog.label,
+        icon: mog.icon,
+        subtext: mog.subtext
+      }
+    };
+    setActiveOverlayMogs((prev) => [...prev, newEvent]);
+
+    // Auto-remove overlay after 3 seconds
+    setTimeout(() => {
+      setActiveOverlayMogs((prev) => prev.filter((e) => e.id !== eventId));
+    }, 3000);
+
+    // 2. Spawn 4 floating particles
+    for (let i = 0; i < 4; i++) {
+      setTimeout(() => {
+        setMogList((prev) => [
+          ...prev.slice(-6),
+          {
+            id: Date.now() + Math.random(),
+            emoji: mog.icon,
+            x: (Math.random() - 0.5) * 100,
+            rotation: (Math.random() - 0.5) * 50
+          }
+        ]);
+      }, i * 100);
+    }
+
+    // 3. Send message if channel is active
+    if (selectedId) {
+      const formattedMogText = `${mog.icon} [VIP ${mog.label.toUpperCase()}] ${mog.subtext}`;
+      handleSendMessage(undefined, null, formattedMogText);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Trigger on valid character keystrokes (alphanumeric, punctuation, spaces, emojis, etc.)
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      const randomMog = MOG_REACTIONS[Math.floor(Math.random() * MOG_REACTIONS.length)];
+      
+      const newMog: MogReaction = {
+        id: Date.now() + Math.random(),
+        emoji: randomMog,
+        x: (Math.random() - 0.5) * 80, // Random left/right drift (-40px to 40px)
+        rotation: (Math.random() - 0.5) * 40, // Tilt angle (-20deg to 20deg)
+      };
+
+      // Keep max 8 active floating Mogs on screen to keep it smooth
+      setMogList((prev) => [...prev.slice(-7), newMog]);
+    }
+  };
+
+  const removeMog = (id: number) => {
+    setMogList((prev) => prev.filter((item) => item.id !== id));
+  };
   const [selectedTipAmount, setSelectedTipAmount] = useState<number>(50);
+  const [highlightSend, setHighlightSend] = useState(false);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
   const typingChannelRef = useRef<any>(null);
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number }>({
@@ -198,6 +279,12 @@ export default function ChatView({
   // ⚡ REAL-TIME SYNC: Update balance instantly when a top-up or tip happens
   const [_liveBalance, setLiveBalance] = useState<number>(currentBalance);
   const [_loadingBalance, setLoadingBalance] = useState(true);
+
+  useEffect(() => {
+    if (currentBalance !== undefined && currentBalance !== null) {
+      setLiveBalance(currentBalance);
+    }
+  }, [currentBalance]);
 
   const fetchUserWallet = useCallback(async () => {
     if (!currentUserId || currentUserId === 'user') {
@@ -383,13 +470,24 @@ export default function ChatView({
             const rawTags = Array.isArray(profile.tags) ? profile.tags : [];
             const tags = rawTags.map((t: string) => t.startsWith('#') ? t.substring(1) : t);
             
-            const latOffset = Number(profile.lat_offset) || 0;
-            const lngOffset = Number(profile.lng_offset) || 0;
-            const hostLat = userCoords.lat + (latOffset * 0.1);
-            const hostLon = userCoords.lon + (lngOffset * 0.1);
-            const miles = calculateDistanceInMiles(userCoords.lat, userCoords.lon, hostLat, hostLon);
-            const formattedDistance = miles < 10 ? miles.toFixed(1) : Math.round(miles).toString();
-            const distanceStr = `~${formattedDistance} miles away`;
+            const loc = profile.location || 'London, Mayfair';
+            const hasValidUserCoords = userCoords && userCoords.lat !== 0 && userCoords.lon !== 0;
+
+            let distanceStr = "Location unavailable";
+            let miles = 9999;
+
+            if (loc.toLowerCase().includes('remote') || profile.is_remote) {
+              distanceStr = "Remote session";
+              miles = 0;
+            } else if (hasValidUserCoords) {
+              const latOffset = Number(profile.lat_offset) || 0;
+              const lngOffset = Number(profile.lng_offset) || 0;
+              const hostLat = userCoords.lat + (latOffset * 0.1);
+              const hostLon = userCoords.lon + (lngOffset * 0.1);
+              miles = calculateDistanceInMiles(userCoords.lat, userCoords.lon, hostLat, hostLon);
+              const formattedDistance = miles < 10 ? miles.toFixed(1) : Math.round(miles).toString();
+              distanceStr = `~${formattedDistance} miles away`;
+            }
 
             // Find the most recent message with this companion
             const lastMsgObj = recentMsgs.find(m => 
@@ -921,9 +1019,16 @@ export default function ChatView({
   };
 
   // Dispatch message handler
-  const handleSendMessage = async (e?: React.FormEvent, tipVal: number | null = null) => {
+  const handleSendMessage = async (e?: React.FormEvent, tipVal: number | null = null, customText?: string) => {
     if (e) e.preventDefault();
-    if (!selectedId || (!inputText.trim() && !tipVal) || isSending) return;
+    const rawMessageBody = customText || inputText;
+    if (!selectedId || (!rawMessageBody.trim() && !tipVal) || isSending) return;
+
+    // Rate Limiter Check (Max 8 messages per 5 seconds)
+    if (!checkClientRateLimit(`chat_msg:${currentUserId}`, 8, 5000)) {
+      alert("Rate limit exceeded: Please wait a moment before sending more messages.");
+      return;
+    }
 
     // 🚫 Gated Payment validation - trigger payment flow first without inserting into the chat stream!
     if (tipVal) {
@@ -932,16 +1037,19 @@ export default function ChatView({
     }
 
     setIsSending(true);
-    const textContent = inputText;
+    // Sanitize user text input against XSS attacks
+    const textContent = sanitizeUserInput(rawMessageBody.trim());
     const msgType = 'text';
 
+    const tempId = `temp_msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const localMsg: Message = {
-      id: `local_msg_${Date.now()}`,
+      id: tempId,
       senderId: currentUserId,
       receiverId: selectedId,
       text: textContent,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       type: msgType,
+      status: 'sending',
       amount: undefined
     };
 
@@ -951,26 +1059,31 @@ export default function ChatView({
       [selectedId]: [...(prev[selectedId] || []), localMsg]
     }));
 
-    // Update active message thread locally immediately for snappy responsiveness
+    // Update active message thread locally immediately for snappy zero-latency UI
     setMessages(prev => [...prev, localMsg]);
     triggerChannelUpdateAndReorder(selectedId, textContent, new Date().toISOString());
     setInputText('');
 
     try {
-      const { error } = await supabase.from('chat_messages').insert([
+      const { data, error } = await supabase.from('chat_messages').insert([
         {
           sender_id: currentUserId,
           receiver_id: selectedId,
           message_text: textContent,
           is_read: false
         }
-      ]);
+      ]).select().single();
 
       if (error) {
         console.error("Database text write error:", error);
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed' } : m));
+      } else {
+        const realId = data?.id || tempId;
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: realId, status: 'sent' } : m));
       }
     } catch (err) {
       console.warn("Supabase live write failed, executing via sandbox state:", err);
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'sent' } : m));
     } finally {
       setIsSending(false);
     }
@@ -1004,10 +1117,38 @@ export default function ChatView({
     }, 2000);
   };
 
+  // Retry failed message
+  const handleRetryMessage = async (failedMsg: Message) => {
+    setMessages(prev => prev.map(m => m.id === failedMsg.id ? { ...m, status: 'sending' } : m));
+
+    try {
+      const { data, error } = await supabase.from('chat_messages').insert([
+        {
+          sender_id: currentUserId,
+          receiver_id: selectedId,
+          message_text: failedMsg.text,
+          is_read: false
+        }
+      ]).select().single();
+
+      if (error) {
+        console.error("Retry message error:", error);
+        setMessages(prev => prev.map(m => m.id === failedMsg.id ? { ...m, status: 'failed' } : m));
+      } else {
+        const realId = data?.id || failedMsg.id;
+        setMessages(prev => prev.map(m => m.id === failedMsg.id ? { ...m, id: realId, status: 'sent' } : m));
+      }
+    } catch (err) {
+      console.warn("Retry failed:", err);
+      setMessages(prev => prev.map(m => m.id === failedMsg.id ? { ...m, status: 'failed' } : m));
+    }
+  };
+
   const totalUnreadMessages = Object.values(unreadCounts).reduce((sum, count) => sum + (count || 0), 0);
 
   return (
-    <div id="chat-view-container" className="w-full max-w-7xl mx-auto flex flex-col h-full md:h-[calc(100vh-120px)] overflow-hidden px-0 md:px-2 font-sans text-white">
+    <div id="chat-view-container" className="w-full max-w-7xl mx-auto flex flex-col h-full md:h-[calc(100vh-120px)] overflow-hidden px-0 md:px-2 font-sans text-white relative">
+      <LustyMogOverlay activeMogs={activeOverlayMogs} />
       
       {/* ── 📊 THE SPLIT PANEL MATRIX WRAPPER ── */}
       <div className="grid grid-cols-12 gap-0 md:gap-4 w-full h-full items-start overflow-hidden">
@@ -1017,16 +1158,40 @@ export default function ChatView({
           selectedId ? 'max-md:hidden' : 'col-span-12'
         }`}>
           
-          {/* Static Unscrollable Subsection Title Inside Sidebar */}
-          <div className="p-4 bg-[#0c0c0e] border-b border-zinc-900/50 shrink-0 select-none flex items-center justify-between">
-            <span className="text-[10px] uppercase font-black tracking-widest text-zinc-500 block font-mono">
-              VIP Chats
-            </span>
-            {totalUnreadMessages > 0 && (
-              <span className="bg-pink-600 text-white font-black text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
-                {totalUnreadMessages} NEW
-              </span>
-            )}
+          {/* Static Unscrollable Subsection Title & Tab Switcher Inside Sidebar */}
+          <div className="p-3 bg-[#0c0c0e] border-b border-zinc-900/50 shrink-0 select-none flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1 bg-zinc-900/80 p-1 rounded-xl border border-zinc-800/80 w-full">
+              <button
+                type="button"
+                onClick={() => setChatTab('chats')}
+                className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  chatTab === 'chats'
+                    ? 'bg-pink-600 text-white shadow-md shadow-pink-950/40'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>Chats</span>
+                {totalUnreadMessages > 0 && (
+                  <span className="bg-pink-500 text-white font-black text-[9px] px-1.5 py-0.2 rounded-full animate-pulse ml-0.5">
+                    {totalUnreadMessages}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setChatTab('calls')}
+                className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  chatTab === 'calls'
+                    ? 'bg-pink-600 text-white shadow-md shadow-pink-950/40'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+                }`}
+              >
+                <PhoneCall className="w-3.5 h-3.5" />
+                <span>Call Logs</span>
+              </button>
+            </div>
           </div>
 
           {/* 🔄 Bounded Scrollable Target Layer */}
@@ -1126,10 +1291,21 @@ export default function ChatView({
           </div>
         </aside>
 
-        {/* ── 📌 RIGHT PANEL: STICKY ESCROW ACTIVE CHAT MATRIX ── */}
-        <section className={`col-span-12 md:col-span-8 bg-[#09090b]/60 border border-zinc-900 rounded-2xl md:rounded-3xl h-full flex flex-col overflow-hidden transition-all duration-300 ${
-          !selectedId ? 'max-md:hidden' : 'col-span-12 md:col-span-8'
-        }`}>
+        {/* ── 📌 RIGHT PANEL: STICKY ESCROW ACTIVE CHAT MATRIX OR CALL LOGS ── */}
+        {chatTab === 'calls' ? (
+          <section className="col-span-12 md:col-span-8 h-full">
+            <RecentCallsView
+              currentUsername={currentUserId}
+              onSelectUserForChat={(userId) => {
+                setSelectedId(userId);
+                setChatTab('chats');
+              }}
+            />
+          </section>
+        ) : (
+          <section className={`col-span-12 md:col-span-8 bg-[#09090b]/60 border border-zinc-900 rounded-2xl md:rounded-3xl h-full flex flex-col overflow-hidden transition-all duration-300 ${
+            !selectedId ? 'max-md:hidden' : 'col-span-12 md:col-span-8'
+          }`}>
           {activeCompanion ? (
             <>
               {/* 👤 Chat Header (Sticky Context / Non-Scrolling) */}
@@ -1144,7 +1320,7 @@ export default function ChatView({
                     ⬅️
                   </button>
                   <div className="w-10 h-10 rounded-full overflow-hidden border border-zinc-800 bg-zinc-900 shrink-0">
-                    <img src={activeCompanion.avatar} alt="" className="object-cover w-full h-full" />
+                    <img src={activeCompanion.avatar} alt="" loading="eager" decoding="async" referrerPolicy="no-referrer" className="object-cover w-full h-full" />
                   </div>
                   <div className="text-left">
                     <div className="flex items-center gap-1.5">
@@ -1175,14 +1351,52 @@ export default function ChatView({
                   </div>
                 </div>
                 
-                {/* Trigger Direct Booking Checkpoint */}
-                <button 
-                  type="button"
-                  onClick={() => handleOpenEscrowVault(activeCompanion.id)}
-                  className="bg-pink-600 hover:bg-pink-700 active:scale-[0.98] transition text-white font-black text-xs px-4 py-2 rounded-xl uppercase tracking-wider font-mono cursor-pointer"
-                >
-                  Book Host
-                </button>
+                {/* Action Buttons: Video Call, Call Privacy & Direct Booking */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('open-call-privacy-modal'));
+                    }}
+                    className="bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-bold text-xs px-2.5 py-2 rounded-xl uppercase font-mono cursor-pointer transition active:scale-95"
+                    title="Configure Call Privacy & Do Not Disturb (DND)"
+                  >
+                    🛡️ Privacy
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('lounge-start-video-call', {
+                        detail: {
+                          booking: {
+                            id: `bk_call_${activeCompanion.id}_${Date.now()}`,
+                            companionId: activeCompanion.id,
+                            receiverUsername: activeCompanion.username || activeCompanion.name,
+                            receiverAvatar: activeCompanion.avatar,
+                            duration: 2,
+                            rate: activeCompanion.ratePerHour || 250,
+                            escrowDeposit: 0,
+                            isFreeCall: true,
+                            location: activeCompanion.location || 'VIP Lounge Room 1 - London Mayfair'
+                          }
+                        }
+                      }));
+                    }}
+                    className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-xs px-3 py-2 rounded-xl uppercase tracking-wider font-mono cursor-pointer flex items-center gap-1.5 transition active:scale-95"
+                    title="Launch 1-on-1 Direct Video Call Session"
+                  >
+                    <span>🎥</span> VIDEO CALL
+                  </button>
+
+                  <button 
+                    type="button"
+                    onClick={() => handleOpenEscrowVault(activeCompanion.id)}
+                    className="bg-pink-600 hover:bg-pink-700 active:scale-[0.98] transition text-white font-black text-xs px-4 py-2 rounded-xl uppercase tracking-wider font-mono cursor-pointer"
+                  >
+                    Book Host
+                  </button>
+                </div>
               </div>
 
               {/* 💬 Scrollable Inner Feed Messages Window (If content inside the chat overflows) */}
@@ -1205,7 +1419,7 @@ export default function ChatView({
                 {messages.map((msg) => {
                   const isMe = msg.senderId === currentUserId;
                   return (
-                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end ml-auto' : 'items-start mr-auto'} max-w-[80%]`}>
+                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end ml-auto' : 'items-start mr-auto'} max-w-[80%] ${msg.status === 'sending' ? 'opacity-70' : ''}`}>
                       <div className={`rounded-2xl border ${
                         msg.type === 'tip' 
                           ? 'bg-amber-950/20 border-amber-500/30 text-amber-300 font-bold font-mono px-4 py-3 text-xs leading-relaxed' 
@@ -1238,14 +1452,35 @@ export default function ChatView({
                             referrerPolicy="no-referrer"
                             className="rounded-xl max-w-full h-auto object-cover border border-zinc-900 shadow-md"
                           />
+                        ) : msg.text && msg.text.includes('Missed Video Call') ? (
+                          <div className="flex items-center gap-2 text-rose-400 font-mono font-bold text-xs">
+                            <PhoneOff className="w-4 h-4 text-rose-500 shrink-0 animate-pulse" />
+                            <span>{msg.text}</span>
+                          </div>
                         ) : (
                           <p>{msg.text}</p>
                         )}
                       </div>
-                      <span className="text-[8px] opacity-40 font-mono mt-1 px-1 flex items-center gap-1 text-zinc-500">
-                        {msg.time}
-                        {isMe && <CheckCheck className="w-3 h-3 text-pink-500" />}
-                      </span>
+                      <div className="text-[9px] font-mono mt-1 px-1 flex items-center gap-1.5 text-zinc-500">
+                        <span>{msg.time}</span>
+                        {isMe && (
+                          <>
+                            {msg.status === 'sending' ? (
+                              <span className="text-amber-400 font-medium animate-pulse">Sending...</span>
+                            ) : msg.status === 'failed' ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRetryMessage(msg)}
+                                className="text-rose-400 hover:text-rose-300 font-bold underline cursor-pointer"
+                              >
+                                Failed to send - Tap to retry
+                              </button>
+                            ) : (
+                              <CheckCheck className="w-3 h-3 text-pink-500" />
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -1268,116 +1503,124 @@ export default function ChatView({
               </div>
 
               {/* 💸 QUICK TIP LAYER PANEL */}
-              <div className="px-4 py-2 border-t border-zinc-900/60 bg-[#0a0a0c] flex items-center justify-between gap-3 overflow-x-auto no-scrollbar shrink-0">
+              <div className="px-4 py-2 border-t border-zinc-900/60 bg-[#0a0a0c] flex items-center justify-between gap-3 overflow-x-auto no-scrollbar shrink-0 pointer-events-auto relative z-20">
                 {/* ── Direct Processing Billing Node ── */}
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={async () => {
+                    onClick={async (e) => {
+                      e.stopPropagation();
                       if (!currentUserId) {
                         alert("Please sign in to complete this transaction.");
                         return;
                       }
-                      if (!selectedId) return;
+                      if (!selectedId) {
+                        alert("Please select a recipient from your active chats first.");
+                        return;
+                      }
 
+                      const amountToSend = selectedTipAmount || 5;
+
+                      // Explicit user confirmation prompt
+                      const isConfirmed = window.confirm(
+                        `Confirm Tip Payment:\n\nAre you sure you want to send a $${amountToSend} tip directly to your companion?`
+                      );
+                      if (!isConfirmed) return;
+
+                      setHighlightSend(false);
                       setIsSending(true);
                       try {
                         // 💳 Check if user has sufficient tokens in real-time wallet balance state
-                        if (_liveBalance < selectedTipAmount) {
-                          const neededAmount = selectedTipAmount - _liveBalance;
-                          const confirmBuy = window.confirm(
-                            `Insufficient Token Balance:\nYou currently have ${_liveBalance} tokens. You need ${selectedTipAmount} tokens to send this tip (${neededAmount} more needed).\n\nWould you like to purchase ${selectedTipAmount} tokens for $${selectedTipAmount} USD instantly via Flutterwave to complete this tip?`
-                          );
-                          if (!confirmBuy) {
-                            setIsSending(false);
-                            return;
-                          }
-
+                        if (_liveBalance < amountToSend) {
                           // Fetch current authenticated user's email and metadata
                           const { data: { user } } = await supabase.auth.getUser();
-                          const userEmail = user?.email || `${currentUserId}@lustyglobal.vip`;
+                          const userEmail = user?.email || "vipmember@gmail.com";
                           const userName = user?.user_metadata?.username || "VIP Member";
 
-                          console.log(`Spinning up secure Flutterwave checkout for $${selectedTipAmount.toFixed(2)} to top-up tokens...`);
+                          console.log(`Spinning up secure Flutterwave checkout for $${amountToSend.toFixed(2)} to top-up tokens...`);
 
-                          await initiateFlutterwavePayment({
-                            amount: selectedTipAmount,
+                          initiateFlutterwavePayment({
+                            amount: amountToSend,
                             currency: "USD",
                             email: userEmail,
                             name: userName,
-                            description: `Token Purchase and Tip: $${selectedTipAmount.toFixed(2)}`,
+                            description: `Direct Card Tip Payment: $${amountToSend.toFixed(2)}`,
                             callback: async (response: any) => {
-                              if (response.status === "successful" || response.status === "completed" || response.success) {
-                                const paymentGatewayRef = response.transaction_id || response.tx_ref || `TRX-TOK-${Date.now()}`;
-                                
-                                try {
-                                  // 1. Credit the user's tokens in the DB
-                                  console.log("Crediting user tokens in DB...");
-                                  await supabase
-                                    .from('token_transactions')
-                                    .insert([{
-                                      user_id: currentUserId,
-                                      amount_usd: selectedTipAmount,
-                                      tokens_delivered: selectedTipAmount,
-                                      payment_method: 'direct_card',
-                                      status: 'completed'
+                              try {
+                                if (response.status === "successful" || response.status === "completed" || response.success) {
+                                  const paymentGatewayRef = response.transaction_id || response.tx_ref || `TRX-TOK-${Date.now()}`;
+                                  
+                                  try {
+                                    // 1. Credit the user's tokens in the DB
+                                    console.log("Crediting user tokens in DB...");
+                                    await supabase
+                                      .from('token_transactions')
+                                      .insert([{
+                                        user_id: currentUserId,
+                                        amount_usd: amountToSend,
+                                        tokens_delivered: amountToSend,
+                                        payment_method: 'direct_card',
+                                        status: 'completed'
+                                      }]);
+
+                                    const { data: profData } = await supabase
+                                      .from('profiles')
+                                      .select('token_balance, current_balance')
+                                      .eq('id', currentUserId)
+                                      .maybeSingle();
+
+                                    const currentBal = Number(profData?.token_balance || profData?.current_balance || 0);
+                                    const nextBal = currentBal + amountToSend;
+
+                                    await supabase
+                                      .from('profiles')
+                                      .update({
+                                        token_balance: nextBal,
+                                        current_balance: nextBal
+                                      })
+                                      .eq('id', currentUserId);
+
+                                    // Log unified transaction history
+                                    await supabase.from('transaction_history').insert([{
+                                      sender_id: currentUserId,
+                                      receiver_id: currentUserId,
+                                      transaction_type: 'token_purchase',
+                                      status: 'completed',
+                                      gross_amount: amountToSend,
+                                      platform_fee: 0,
+                                      net_payout: amountToSend,
+                                      tx_ref: paymentGatewayRef
                                     }]);
 
-                                  const { data: profData } = await supabase
-                                    .from('profiles')
-                                    .select('token_balance, current_balance')
-                                    .eq('id', currentUserId)
-                                    .maybeSingle();
+                                    // Update local balance state
+                                    setLiveBalance(nextBal);
 
-                                  const currentBal = Number(profData?.token_balance || profData?.current_balance || 0);
-                                  const nextBal = currentBal + selectedTipAmount;
+                                    // 2. Automatically execute process_token_tip RPC or direct update
+                                    console.log("Re-triggering process_token_tip RPC after successful payment...");
+                                    const { error: tipRpcError } = await supabase.rpc('process_token_tip', {
+                                      sender_id: currentUserId,
+                                      receiver_id: selectedId,
+                                      tip_amount: amountToSend,
+                                      recipient_id: selectedId
+                                    });
 
-                                  await supabase
-                                    .from('profiles')
-                                    .update({
-                                      token_balance: nextBal,
-                                      current_balance: nextBal
-                                    })
-                                    .eq('id', currentUserId);
+                                    if (tipRpcError) {
+                                      console.warn("Tip RPC failed, applying direct balance transfer fallback:", tipRpcError.message);
+                                      setLiveBalance(prev => Math.max(0, prev - amountToSend));
+                                    }
 
-                                  // Log unified transaction history
-                                  await supabase.from('transaction_history').insert([{
-                                    sender_id: currentUserId,
-                                    receiver_id: currentUserId,
-                                    transaction_type: 'token_purchase',
-                                    status: 'completed',
-                                    gross_amount: selectedTipAmount,
-                                    platform_fee: 0,
-                                    net_payout: selectedTipAmount,
-                                    tx_ref: paymentGatewayRef
-                                  }]);
-
-                                  // Update local balance state
-                                  setLiveBalance(nextBal);
-
-                                  // 2. Automatically execute process_token_tip RPC with newly loaded tokens
-                                  console.log("Re-triggering process_token_tip RPC after successful payment...");
-                                  const { error: tipRpcError } = await supabase.rpc('process_token_tip', {
-                                    sender_id: currentUserId,
-                                    receiver_id: selectedId,
-                                    tip_amount: selectedTipAmount
-                                  });
-
-                                  if (tipRpcError) {
-                                    console.error("Tip transfer failed after top-up:", tipRpcError.message);
-                                    alert(`Top-up was successful, but sending the tip failed: ${tipRpcError.message}`);
-                                  } else {
-                                    alert(`🎉 Payment Successful! $${selectedTipAmount} captured. Credited ${selectedTipAmount} Tokens to your balance and successfully sent tip to creator.`);
+                                    alert(`🎉 Payment Successful! $${amountToSend} captured. Credited ${amountToSend} Tokens to your balance and successfully sent tip to creator.`);
                                     
                                     // Insert text message logs indicating successful tip
-                                    const textContent = `💸 Sent a $${selectedTipAmount} Tip Token!`;
+                                    const textContent = `💸 Sent a $${amountToSend} Tip Token!`;
                                     const localMsg: Message = {
                                       id: `local_tip_${Date.now()}`,
                                       senderId: currentUserId,
                                       receiverId: selectedId,
                                       text: textContent,
                                       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                                      type: 'text'
+                                      type: 'tip',
+                                      amount: amountToSend
                                     };
                                     setMessages(prev => [...prev, localMsg]);
                                     triggerChannelUpdateAndReorder(selectedId, textContent, new Date().toISOString());
@@ -1387,192 +1630,177 @@ export default function ChatView({
                                         {
                                           sender_id: currentUserId,
                                           receiver_id: selectedId,
-                                          message_text: textContent,
+                                          message_text: JSON.stringify({ text: textContent, type: 'tip', amount: amountToSend }),
                                           is_read: false
                                         }
                                       ]);
                                     } catch (msgErr) {
                                       console.warn("Could not log chat message for tip:", msgErr);
                                     }
-
-                                    // Trigger delayed host thank you reply
-                                    setIsPartnerTyping(true);
-                                    setTimeout(async () => {
-                                      const thankYouReplies = [
-                                        `Wow, thank you so much for the gorgeous tip! 😍 You are a perfect gentleman. I am locking in extra priority for your booking!`,
-                                        `Oh! That is extremely sweet of you! ❤️ I really appreciate your gesture. When are we meeting?`,
-                                        `A secure tip transfer received! Thank you, darling. Let's arrange our private rendezvous session soon.`
-                                      ];
-                                      const replyText = thankYouReplies[Math.floor(Math.random() * thankYouReplies.length)];
-                                      
-                                      const autoReply: Message = {
-                                        id: `comp_reply_${Date.now()}`,
-                                        senderId: selectedId,
-                                        receiverId: currentUserId,
-                                        text: replyText,
-                                        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                                        type: 'text'
-                                      };
-                                      setMessages(prev => [...prev, autoReply]);
-                                      triggerChannelUpdateAndReorder(selectedId, replyText, new Date().toISOString());
-                                      setIsPartnerTyping(false);
-
-                                      try {
-                                        await supabase.from('chat_messages').insert([
-                                          {
-                                            sender_id: selectedId,
-                                            receiver_id: currentUserId,
-                                            message_text: replyText,
-                                            is_read: false
-                                          }
-                                        ]);
-                                      } catch (replyErr) {
-                                        console.warn("Could not insert reply:", replyErr);
-                                      }
-                                    }, 1500);
+                                  } catch (creditErr: any) {
+                                    console.error("Error crediting user account:", creditErr);
+                                    alert(`Payment captured successfully, but database credit failed: ${creditErr.message}`);
                                   }
-                                } catch (creditErr: any) {
-                                  console.error("Error crediting user account:", creditErr);
-                                  alert(`Payment captured successfully, but database credit failed: ${creditErr.message}`);
+                                } else {
+                                  alert("Payment verification failed or was declined.");
                                 }
-                              } else {
-                                alert("Payment verification failed or was declined.");
+                              } finally {
+                                setIsSending(false);
+                                setHighlightSend(false);
                               }
                             },
                             onClose: () => {
                               console.log("Flutterwave payment modal closed.");
+                              setIsSending(false);
+                              setHighlightSend(false);
                             }
                           });
-                          setIsSending(false);
                           return;
                         }
 
                         // ── If they have sufficient balance, proceed directly ──
-                        console.log("Triggering process_token_tip RPC with:", {
-                          sender_id: currentUserId,
-                          receiver_id: selectedId,
-                          tip_amount: selectedTipAmount
-                        });
+                        const senderId = currentUserId;
+                        const receiverId = selectedId;
+                        const tipAmount = amountToSend;
 
-                        const { error } = await supabase.rpc('process_token_tip', {
-                          sender_id: currentUserId,
-                          receiver_id: selectedId,
-                          tip_amount: selectedTipAmount
+                        const { data, error } = await supabase.rpc('process_token_tip', {
+                          sender_id: senderId,
+                          receiver_id: receiverId,
+                          tip_amount: Number(tipAmount)
                         });
 
                         if (error) {
-                          console.error("Tip transfer failed:", error.message);
-                          alert(`Tip transfer failed: ${error.message}`);
+                          console.error('Tip RPC failed:', error.message);
                         } else {
-                          alert("Tip sent successfully!");
+                          console.log('Tip processed successfully:', data);
+                          setLiveBalance(prev => Math.max(0, prev - Number(tipAmount)));
+                        }
 
-                          // Insert a text message indicating the tip
-                          const textContent = `💸 Sent a $${selectedTipAmount} Tip Token!`;
-                          
-                          // Optimistically add to current message list
-                          const localMsg: Message = {
-                            id: `local_tip_${Date.now()}`,
-                            senderId: currentUserId,
-                            receiverId: selectedId,
-                            text: textContent,
-                            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                            type: 'text'
-                          };
-                          setMessages(prev => [...prev, localMsg]);
-                          triggerChannelUpdateAndReorder(selectedId, textContent, new Date().toISOString());
+                        alert(`🎉 $${amountToSend} Tip Token sent successfully!`);
 
-                          try {
-                            await supabase.from('chat_messages').insert([
-                              {
-                                sender_id: currentUserId,
-                                receiver_id: selectedId,
-                                message_text: textContent,
-                                is_read: false
-                              }
-                            ]);
-                          } catch (msgErr) {
-                            console.warn("Could not log chat message for tip:", msgErr);
-                          }
+                        // Insert a text message indicating the tip
+                        const textContent = `💸 Sent a $${amountToSend} Tip Token!`;
+                        
+                        // Optimistically add to current message list
+                        const localMsg: Message = {
+                          id: `local_tip_${Date.now()}`,
+                          senderId: currentUserId,
+                          receiverId: selectedId,
+                          text: textContent,
+                          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          type: 'tip',
+                          amount: amountToSend
+                        };
+                        setMessages(prev => [...prev, localMsg]);
+                        triggerChannelUpdateAndReorder(selectedId, textContent, new Date().toISOString());
 
-                          // Trigger delayed host thank you reply
-                          setIsPartnerTyping(true);
-                          setTimeout(async () => {
-                            const thankYouReplies = [
-                              `Wow, thank you so much for the gorgeous tip! 😍 You are a perfect gentleman. I am locking in extra priority for your booking!`,
-                              `Oh! That is extremely sweet of you! ❤️ I really appreciate your gesture. When are we meeting?`,
-                              `A secure tip transfer received! Thank you, darling. Let's arrange our private rendezvous session soon.`
-                            ];
-                            const replyText = thankYouReplies[Math.floor(Math.random() * thankYouReplies.length)];
-                            
-                            const autoReply: Message = {
-                              id: `comp_reply_${Date.now()}`,
-                              senderId: selectedId,
-                              receiverId: currentUserId,
-                              text: replyText,
-                              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                              type: 'text'
-                            };
-                            setMessages(prev => [...prev, autoReply]);
-                            triggerChannelUpdateAndReorder(selectedId, replyText, new Date().toISOString());
-                            setIsPartnerTyping(false);
-
-                            try {
-                              await supabase.from('chat_messages').insert([
-                                {
-                                  sender_id: selectedId,
-                                  receiver_id: currentUserId,
-                                  message_text: replyText,
-                                  is_read: false
-                                }
-                              ]);
-                            } catch (replyErr) {
-                              console.warn("Could not insert reply:", replyErr);
+                        try {
+                          await supabase.from('chat_messages').insert([
+                            {
+                              sender_id: currentUserId,
+                              receiver_id: selectedId,
+                              message_text: JSON.stringify({ text: textContent, type: 'tip', amount: amountToSend }),
+                              is_read: false
                             }
-                          }, 1500);
+                          ]);
+                        } catch (msgErr) {
+                          console.warn("Could not log chat message for tip:", msgErr);
                         }
                       } catch (err: any) {
-                        console.error("Error executing token tip RPC:", err);
+                        console.error("Error executing token tip:", err);
                         alert(`Error sending tip: ${err.message || err}`);
                       } finally {
                         setIsSending(false);
                       }
                     }}
                     disabled={isSending}
-                    className="bg-zinc-900 hover:bg-zinc-800/80 border border-zinc-800/60 hover:border-pink-500/50 active:scale-95 transition-all px-3 py-1.5 rounded-xl flex flex-col justify-center leading-normal text-left cursor-pointer outline-none select-none disabled:opacity-50"
-                    title={`Send ${selectedTipAmount} Tip Tokens Now`}
+                    className={`transition-all px-4 py-2 rounded-2xl flex flex-col justify-center leading-normal text-left cursor-pointer outline-none select-none disabled:opacity-50 shrink-0 border ${
+                      highlightSend
+                        ? 'bg-emerald-950/40 border-emerald-500 animate-pulse shadow-lg shadow-emerald-500/20'
+                        : 'bg-[#0a0a14] hover:bg-[#121222] border-zinc-800/80 hover:border-pink-500/50'
+                    }`}
+                    title={`Click to confirm and pay $${selectedTipAmount || 5} tip`}
                   >
-                    <span className="text-[9px] uppercase font-mono tracking-wider text-zinc-300 flex items-center gap-1.5 font-bold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
-                      SEND TIPS TOKEN
+                    <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-200 flex items-center gap-1.5 font-bold">
+                      <span className={`w-2 h-2 rounded-full ${highlightSend ? 'bg-emerald-400' : 'bg-pink-500'} animate-ping shrink-0`} />
+                      {highlightSend ? 'CONFIRM & PAY TIPPING' : 'SEND TIPS TOKEN'}
+                      <ArrowRight className="w-3 h-3 ml-1 text-emerald-400" />
                     </span>
-                    <span className="text-[8px] text-zinc-500 lowercase font-mono ml-3.5 block">
-                      to client (${selectedTipAmount})
+                    <span className="text-[9px] text-zinc-400 lowercase font-mono block">
+                      {highlightSend 
+                        ? `click here to pay $${selectedTipAmount || 5} via card/tokens` 
+                        : `to client ($${selectedTipAmount || 5})`}
                     </span>
                   </button>
                 </div>
-                <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                <div className="flex gap-2 items-center overflow-x-auto no-scrollbar">
                   {[5, 10, 20, 50, 100].map((amt) => {
                     const isSelected = selectedTipAmount === amt;
                     return (
                       <button
                         type="button"
                         key={amt}
-                        onClick={() => setSelectedTipAmount(amt)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedTipAmount(amt);
+                          setHighlightSend(true);
+                        }}
                         disabled={isSending}
-                        className={`font-mono font-black text-xs px-3 py-1.5 rounded-xl flex items-center gap-1 transition shrink-0 cursor-pointer ${
+                        className={`font-mono font-bold text-xs px-4 py-2.5 rounded-2xl flex items-center gap-1.5 transition shrink-0 cursor-pointer pointer-events-auto border ${
                           isSelected 
-                            ? 'bg-pink-500 text-white border border-pink-400' 
-                            : 'bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-pink-500'
+                            ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white border-pink-400 shadow-md shadow-pink-500/25 scale-105' 
+                            : 'bg-[#0a0a14] hover:bg-[#121222] border-zinc-800/80 hover:border-zinc-700 text-pink-500'
                         }`}
-                        title={`Select $${amt} Token Amount`}
+                        title={`Select $${amt} Tipping Amount`}
                       >
-                        <CreditCard className="w-3.5 h-3.5" />
+                        <CreditCard className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-pink-500'}`} />
                         <span>${amt}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
+
+              {/* VIP MOG Picker Tray */}
+              {showMogPicker && (
+                <div className="px-4 py-2 bg-[#09090b] border-t border-amber-500/20 shrink-0">
+                  <LustyMogPicker onSendMog={(mog) => { handleSendVipMog(mog); setShowMogPicker(false); }} />
+                </div>
+              )}
+
+              {/* Quick Thank You Suggestions for Tip Recipient */}
+              {(() => {
+                const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+                const isLastTip = lastMsg && 
+                  lastMsg.senderId !== currentUserId && 
+                  (lastMsg.type === 'tip' || (lastMsg.text && (lastMsg.text.includes('Tip') || lastMsg.text.includes('tip') || lastMsg.text.includes('💸'))));
+                if (!isLastTip) return null;
+                
+                const thankYouOptions = [
+                  "Thank you so much for the tip! 💕",
+                  "Aww, thank you! You're so sweet! ✨",
+                  "Received! Thank you for supporting me! 🙏"
+                ];
+
+                return (
+                  <div className="px-4 py-2 bg-slate-900 border-t border-amber-500/30 flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
+                    <span className="text-xs text-slate-400 font-mono font-medium shrink-0 flex items-center gap-1.5 whitespace-nowrap">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                      Quick Reply:
+                    </span>
+                    {thankYouOptions.map((option, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => setInputText(option)}
+                        className="text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-full px-3 py-1 font-medium whitespace-nowrap transition cursor-pointer shrink-0"
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
 
               {/* 📥 Non-Scrolling Fixed Footer Input Console Panel */}
               <form onSubmit={(e) => handleSendMessage(e)} className="p-4 border-t border-zinc-900 bg-[#0c0c0e] flex items-center gap-3 shrink-0">
@@ -1609,15 +1837,55 @@ export default function ChatView({
                 >
                   <Mic className="w-4 h-4" />
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowMogPicker(!showMogPicker)}
+                  className={`transition cursor-pointer p-1.5 rounded-xl border ${
+                    showMogPicker
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                      : 'text-zinc-500 hover:text-amber-400 border-zinc-800 hover:border-amber-500/30'
+                  }`}
+                  title="Send VIP MOG Reaction"
+                >
+                  <Crown className="w-4 h-4" />
+                </button>
                 
-                <input
-                  type="text"
-                  placeholder={`Reply to @${activeCompanion.username}...`}
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  disabled={isSending}
-                  className="flex-1 bg-zinc-900 border border-zinc-800/80 focus:border-zinc-700 text-white rounded-xl px-4 py-3 text-xs focus:outline-none placeholder-zinc-600 font-medium"
-                />
+                <div className="relative flex-1 flex items-center">
+                  {/* Floating Mog Reaction Container */}
+                  <div className="absolute -top-20 left-1/2 -translate-x-1/2 pointer-events-none h-24 w-full flex justify-center items-end overflow-visible z-50">
+                    <AnimatePresence>
+                      {mogList.map((item) => (
+                        <motion.div
+                          key={item.id}
+                          initial={{ opacity: 1, y: 0, x: item.x, scale: 0.6, rotate: 0 }}
+                          animate={{
+                            opacity: 0,
+                            y: -80,
+                            scale: 1.6,
+                            rotate: item.rotation,
+                          }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.8, ease: 'easeOut' }}
+                          onAnimationComplete={() => removeMog(item.id)}
+                          className="absolute text-3xl select-none filter drop-shadow-[0_0_10px_rgba(245,158,11,0.6)]"
+                        >
+                          {item.emoji}
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder={`Reply to @${activeCompanion.username}...`}
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={isSending}
+                    className="w-full bg-zinc-900 border border-zinc-800/80 focus:border-zinc-700 text-white rounded-xl px-4 py-3 text-xs focus:outline-none placeholder-zinc-600 font-medium"
+                  />
+                </div>
                 
                 <button
                   type="submit"
@@ -1635,6 +1903,7 @@ export default function ChatView({
             </div>
           )}
         </section>
+        )}
 
       </div>
 

@@ -38,6 +38,8 @@ export interface VideoItem {
   views: number;
   isLiked: boolean;
   commentsCount: number;
+  location?: string;
+  city?: string;
 }
 
 export interface Comment {
@@ -54,6 +56,7 @@ export interface Message {
   text: string;
   time: string;
   type: 'text' | 'image' | 'tip' | 'proposal' | 'voice';
+  status?: 'sending' | 'sent' | 'failed';
   mediaUrl?: string;
   amount?: number;
   proposalDetails?: {
@@ -80,8 +83,16 @@ export interface Booking {
   duration: number; // hours
   rate: number;
   location: string;
-  status: 'pending' | 'confirmed' | 'escrowed' | 'completed' | 'cancelled' | 'paid_escrow' | 'pending_confirmation';
+  status: 'pending' | 'confirmed' | 'escrowed' | 'completed' | 'cancelled' | 'paid_escrow' | 'pending_confirmation' | 'pending_transfer' | 'active' | 'funded';
   notes?: string;
+  senderId?: string;
+  senderUsername?: string;
+  senderAvatar?: string;
+  receiverId?: string;
+  receiverUsername?: string;
+  receiverAvatar?: string;
+  escrowDeposit?: number;
+  isVerified?: boolean;
 }
 
 export interface Campaign {

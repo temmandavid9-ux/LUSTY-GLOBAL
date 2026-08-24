@@ -1,13 +1,13 @@
 // Service Worker for Push, Background Notifications, Assets Caching and Offline Mode
-const SW_VERSION = '1.1.0';
-const CACHE_NAME_STATIC = 'lusty-global-static-v2';
-const CACHE_NAME_API = 'lusty-global-api-v2';
+const SW_VERSION = '1.1.3';
+const CACHE_NAME_STATIC = 'lusty-global-static-v5';
+const CACHE_NAME_API = 'lusty-global-api-v5';
 
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/logo.png',
-  '/favicon.ico',
+  '/manifest.json',
 ];
 
 self.addEventListener('install', (event) => {
@@ -46,6 +46,7 @@ function isStaticAsset(url) {
     url.origin === self.location.origin &&
     (path === '/' ||
      path === '/index.html' ||
+     path.endsWith('.json') ||
      path.endsWith('.js') ||
      path.endsWith('.css') ||
      path.endsWith('.png') ||
@@ -82,8 +83,19 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
-  if (request.method !== 'GET') {
+  // Skip non-GET requests, and completely ignore manifest.json to let the browser load it directly
+  if (request.method !== 'GET' || url.pathname.includes('manifest.json')) {
+    return;
+  }
+
+  // Bypass Service Worker for Supabase REST APIs (except profile cache), Auth, and video stream requests
+  if (
+    (url.pathname.includes('/rest/v1/') && !isProfilesApiRequest(request)) ||
+    url.pathname.includes('/auth/v1/') ||
+    url.pathname.endsWith('.mp4') ||
+    url.pathname.endsWith('.webm') ||
+    url.pathname.includes('/storage/v1/object/public/videos/')
+  ) {
     return;
   }
 
@@ -95,7 +107,9 @@ self.addEventListener('fetch', (event) => {
           if (response && response.status === 200) {
             const responseClone = response.clone();
             caches.open(CACHE_NAME_API).then((cache) => {
-              cache.put(request, responseClone);
+              cache.put(request, responseClone).catch((err) => {
+                console.warn('[Service Worker] Failed to write API response to cache:', err);
+              });
             });
           }
           return response;
@@ -124,6 +138,29 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Case 1.5: Supabase Storage/Assets (Network-First with fallback to cached logo.png or safe silent audio)
+  if (url.hostname === 'vtmaffcyvhnnmfibfswm.supabase.co') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          return response;
+        })
+        .catch((err) => {
+          console.warn('[Service Worker] Supabase asset fetch failed for:', url.pathname);
+          // If it is an audio request or ends with .mp3, return a clean empty response with a 204 status to prevent browser audio issues
+          if (url.pathname.endsWith('.mp3') || request.destination === 'audio') {
+            return new Response(null, { status: 204 });
+          }
+          // If it is an image, fall back to cached logo.png
+          return caches.match('/logo.png').then((fallback) => {
+            if (fallback) return fallback;
+            return new Response('', { status: 404, statusText: 'Offline Fallback Unavailable' });
+          });
+        })
+    );
+    return;
+  }
+
   // Case 2: Static Assets & Fonts (Stale-While-Revalidate)
   if (isStaticAsset(url) || isFontOrStylesheet(url)) {
     event.respondWith(
@@ -133,16 +170,33 @@ self.addEventListener('fetch', (event) => {
             if (networkResponse && networkResponse.status === 200) {
               const responseClone = networkResponse.clone();
               caches.open(CACHE_NAME_STATIC).then((cache) => {
-                cache.put(request, responseClone);
+                cache.put(request, responseClone).catch((err) => {
+                  console.warn('[Service Worker] Failed to write static asset to cache:', err);
+                });
               });
             }
             return networkResponse;
-          })
-          .catch((err) => {
-            console.log('[Service Worker] Fetch failed for static asset offline:', url.pathname);
           });
 
-        return cachedResponse || fetchPromise;
+        if (cachedResponse) {
+          // Silent background update catch so it doesn't log standard network interruptions as fatal errors
+          fetchPromise.catch((err) => {
+            console.log('[Service Worker] Running in offline/cached fallback mode.');
+          });
+          return cachedResponse;
+        }
+
+        return fetchPromise.catch((err) => {
+          console.warn('[Service Worker] Fetch failed for static asset offline:', url.pathname);
+          // If it is an image request, fallback to logo.png
+          if (request.destination === 'image' || url.pathname.endsWith('.png') || url.pathname.endsWith('.jpg') || url.pathname.endsWith('.jpeg')) {
+            return caches.match('/logo.png').then((fallback) => {
+              if (fallback) return fallback;
+              throw err;
+            });
+          }
+          throw err;
+        });
       })
     );
     return;

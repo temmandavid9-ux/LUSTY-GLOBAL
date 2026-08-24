@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { Compass, MessageSquare, Award, MapPin, Loader2 } from 'lucide-react';
+import { Compass, MessageSquare, Award, MapPin, Loader2, LocateFixed, Move } from 'lucide-react';
 import { calculateDistanceInMiles } from '../utils/geo';
 
 interface RadarCompanion {
@@ -9,17 +9,29 @@ interface RadarCompanion {
   avatar_url?: string;
   location: string;
   hourly_rate: number;
+  rating: number;
   lat_offset: number;
   lng_offset: number;
   is_online?: boolean;
 }
 
+export interface RadarFilters {
+  onlineOnly: boolean;
+  minRating: number;
+  minRate: number;
+  maxRate: number;
+}
+
 export function LustyLiveRadar({ 
   currentUserId,
-  onStartChat
+  onStartChat,
+  filters,
+  centerTrigger
 }: { 
   currentUserId: string;
   onStartChat?: (companionId: string) => void;
+  filters?: RadarFilters;
+  centerTrigger?: number;
 }) {
   const [hosts, setHosts] = useState<RadarCompanion[]>([]);
   const [selectedHost, setSelectedHost] = useState<RadarCompanion | null>(null);
@@ -31,14 +43,32 @@ export function LustyLiveRadar({
   const [isLocating, setIsLocating] = useState(false);
   const [locationStatus, setLocationStatus] = useState<string | null>(null);
 
+  // Pan offset and centering animation state
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isCentering, setIsCentering] = useState(false);
+  const [showPulsePing, setShowPulsePing] = useState(false);
+
+  const prevCenterTrigger = useRef<number | undefined>(centerTrigger);
+
   const handleCenterLocation = () => {
+    setIsCentering(true);
+    setPanOffset({ x: 0, y: 0 });
+    setShowPulsePing(true);
+
     if (!navigator.geolocation) {
       setLocationStatus("Not supported");
-      setTimeout(() => setLocationStatus(null), 3000);
+      setTimeout(() => {
+        setLocationStatus(null);
+        setIsCentering(false);
+      }, 2000);
       return;
     }
+
     setIsLocating(true);
     setLocationStatus("Locating...");
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setUserCoords({
@@ -46,20 +76,76 @@ export function LustyLiveRadar({
           lon: position.coords.longitude
         });
         setIsLocating(false);
-        setLocationStatus("Synced!");
-        setTimeout(() => setLocationStatus(null), 3000);
+        setLocationStatus("Centered!");
+        setTimeout(() => {
+          setLocationStatus(null);
+          setIsCentering(false);
+          setShowPulsePing(false);
+        }, 2500);
       },
       (error) => {
-        console.warn('Geolocation access failed or blocked:', error);
+        console.warn('Geolocation access failed or timed out, using fallback coordinates:', error);
+        setUserCoords({ lat: 51.5074, lon: -0.1278 });
         setIsLocating(false);
-        setLocationStatus("Failed");
-        setTimeout(() => setLocationStatus(null), 3000);
+        setLocationStatus("Centered (Default GPS)");
+        setTimeout(() => {
+          setLocationStatus(null);
+          setIsCentering(false);
+          setShowPulsePing(false);
+        }, 2500);
       },
-      { enableHighAccuracy: true, timeout: 6000 }
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
     );
   };
 
-  // Request browser/device GPS coordinates
+  useEffect(() => {
+    if (centerTrigger !== undefined && centerTrigger !== prevCenterTrigger.current) {
+      prevCenterTrigger.current = centerTrigger;
+      handleCenterLocation();
+    }
+  }, [centerTrigger]);
+
+  // Drag handlers for canvas panning
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setPanOffset({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      setIsDragging(true);
+      setDragStart({ x: e.touches[0].clientX - panOffset.x, y: e.touches[0].clientY - panOffset.y });
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (isDragging && e.touches.length === 1) {
+      setPanOffset({
+        x: e.touches[0].clientX - dragStart.x,
+        y: e.touches[0].clientY - dragStart.y
+      });
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+  };
+
+  const isPanned = Math.abs(panOffset.x) > 8 || Math.abs(panOffset.y) > 8;
+
+  // Request browser/device GPS coordinates with graceful fallback to London default coords
   useEffect(() => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
@@ -70,77 +156,135 @@ export function LustyLiveRadar({
         });
       },
       (error) => {
-        console.warn('Geolocation access failed or blocked:', error);
+        console.warn('Geolocation access failed or timed out, using default coordinates:', error);
+        setUserCoords({ lat: 51.5074, lon: -0.1278 });
       },
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
     );
   }, []);
 
-  // 1. Fetch nearby hosts with real offset values
+  // 1. Fetch nearby hosts with real offset values from live Supabase profiles
   useEffect(() => {
     const fetchRadarData = async () => {
       setIsLoading(true);
       try {
-        let query = supabase
-          .from('profiles')
-          .select('id, username, avatar_url, location, hourly_rate, lat_offset, lng_offset, is_online');
-
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (currentUserId && uuidRegex.test(currentUserId)) {
-          query = query.not('id', 'eq', currentUserId);
-        } else {
-          query = query.not('id', 'is', null);
+        let activeUserId = currentUserId;
+        if (!activeUserId) {
+          try {
+            const { data: authData } = await supabase.auth.getUser();
+            if (authData?.user) {
+              activeUserId = authData.user.id;
+            }
+          } catch (e) {
+            console.warn("Could not retrieve auth session user for radar:", e);
+          }
         }
 
-        const { data, error } = await query.limit(8);
+        let queryData: any[] | null = null;
 
+        // Fetch real profiles from Supabase using valid column selection
+        let query = supabase
+          .from('profiles')
+          .select('id, username, avatar_url, location, hourly_rate, lat_offset, lng_offset, is_online, current_lat, current_lon');
+
+        if (activeUserId) {
+          query = query.neq('id', activeUserId);
+        }
+
+        const { data, error } = await query.limit(20);
         if (!error && data && data.length > 0) {
-          // Ensure mock data fallbacks map onto coordinates if they are completely blank
-          const mappedData = data.map((host: any, idx: number) => {
+          queryData = data;
+        } else {
+          if (error) {
+            console.warn("Error fetching profiles table:", error);
+          }
+          // Fallback to companions table
+          let compQuery = supabase
+            .from('companions')
+            .select('id, name, username, avatar_url, location, hourly_rate, lat_offset, lng_offset, is_online');
+          if (activeUserId) {
+            compQuery = compQuery.neq('id', activeUserId);
+          }
+          const { data: compData, error: compError } = await compQuery.limit(20);
+          if (!compError && compData && compData.length > 0) {
+            queryData = compData.map((c: any) => ({
+              ...c,
+              username: c.username || c.name
+            }));
+          }
+        }
+
+        if (queryData && queryData.length > 0) {
+          const mappedData = queryData.map((host: any, idx: number) => {
             const isOnlineVal = host.is_online === true || host.is_online === 'true' || host.is_online === 1 || host.is_online === '1';
+            
+            // Generate deterministic radar positions relative to center if lat/lng_offset are 0/null
+            const defaultLatOffsets = [0.25, -0.4, 0.45, -0.15, 0.1, -0.3, 0.35, -0.2, 0.2, -0.35, 0.15, -0.25];
+            const defaultLngOffsets = [-0.35, 0.35, -0.1, -0.45, 0.4, -0.2, 0.15, -0.3, 0.3, -0.15, -0.4, 0.25];
+
+            const latOffsetVal = Number(host.lat_offset) || defaultLatOffsets[idx % defaultLatOffsets.length];
+            const lngOffsetVal = Number(host.lng_offset) || defaultLngOffsets[idx % defaultLngOffsets.length];
+
             return {
               id: host.id,
               username: host.username || 'anonymous',
               avatar_url: host.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80',
-              location: host.location || 'London, Mayfair',
-              hourly_rate: host.hourly_rate || 250,
-              lat_offset: Number(host.lat_offset) || [0.25, -0.4, 0.45, -0.15, 0.1, -0.3, 0.35, -0.2][idx % 8],
-              lng_offset: Number(host.lng_offset) || [-0.35, 0.35, -0.1, -0.45, 0.4, -0.2, 0.15, -0.3][idx % 8],
+              location: host.location || 'London Area',
+              hourly_rate: Number(host.hourly_rate) || 250,
+              rating: [4.9, 4.8, 4.6, 4.9, 5.0, 4.7, 4.8, 4.9][idx % 8],
+              lat_offset: latOffsetVal,
+              lng_offset: lngOffsetVal,
               is_online: isOnlineVal
             };
           });
           setHosts(mappedData);
           if (mappedData.length > 0) setSelectedHost(mappedData[0]);
         } else {
-          setHosts(getFallbackRadarHosts());
-          const fallback = getFallbackRadarHosts();
-          if (fallback.length > 0) setSelectedHost(fallback[0]);
+          // If database returns empty list, set empty list so we never override with mock profiles
+          setHosts([]);
+          setSelectedHost(null);
         }
       } catch (err) {
-        console.warn('Radar live data handshake failed, using simulated high-precision positioning offsets:', err);
-        setHosts(getFallbackRadarHosts());
-        const fallback = getFallbackRadarHosts();
-        if (fallback.length > 0) setSelectedHost(fallback[0]);
+        console.warn('Radar live data fetch failed:', err);
       } finally {
         setIsLoading(false);
       }
     };
+
     fetchRadarData();
+
+    // Subscribe to live profile changes in Supabase Realtime
+    const channel = supabase
+      .channel('public:profiles:radar')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        fetchRadarData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [currentUserId]);
 
-  const getFallbackRadarHosts = (): RadarCompanion[] => {
-    return [
-      { id: 'comp_1', username: 'clara_mayfair', avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150', location: 'London, Mayfair', hourly_rate: 250, lat_offset: 0.25, lng_offset: -0.35, is_online: true },
-      { id: 'comp_2', username: 'elena_luxe', avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150', location: 'London, Chelsea', hourly_rate: 300, lat_offset: -0.4, lng_offset: 0.35, is_online: true },
-      { id: 'comp_3', username: 'sophia_grace', avatar_url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150', location: 'London, Kensington', hourly_rate: 200, lat_offset: 0.45, lng_offset: -0.1, is_online: false },
-      { id: 'comp_4', username: 'mya_adore', avatar_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150', location: 'London, Soho', hourly_rate: 280, lat_offset: -0.15, lng_offset: -0.45, is_online: true },
-      { id: 'comp_5', username: 'bella_elite', avatar_url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150', location: 'London, Westminster', hourly_rate: 350, lat_offset: 0.1, lng_offset: 0.4, is_online: true },
-      { id: 'comp_6', username: 'stella_lounge', avatar_url: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=150', location: 'London, Knightsbridge', hourly_rate: 400, lat_offset: -0.3, lng_offset: -0.2, is_online: false }
-    ];
-  };
+  const filteredHosts = hosts.filter((host) => {
+    if (!filters) return true;
+    if (filters.onlineOnly && !host.is_online) return false;
+    if (filters.minRating > 0 && (host.rating || 0) < filters.minRating) return false;
+    if (filters.minRate > 0 && host.hourly_rate < filters.minRate) return false;
+    if (filters.maxRate < 1000 && host.hourly_rate > filters.maxRate) return false;
+    return true;
+  });
+
+  useEffect(() => {
+    if (selectedHost && !filteredHosts.some(h => h.id === selectedHost.id)) {
+      setSelectedHost(filteredHosts[0] || null);
+    } else if (!selectedHost && filteredHosts.length > 0) {
+      setSelectedHost(filteredHosts[0]);
+    }
+  }, [filteredHosts, selectedHost]);
 
   return (
-    <div className="bg-[#0c0c0e] border border-zinc-900 rounded-3xl w-full max-w-6xl overflow-hidden font-sans text-white flex flex-col md:flex-row h-auto md:h-[520px]">
+    <div className="bg-[#0c0c0e] border border-zinc-900 rounded-3xl w-full max-w-6xl font-sans text-white flex flex-col md:flex-row h-auto md:min-h-[520px]">
       
       {/* 🔮 LEFT RADAR CANVAS LAYER */}
       <div className="flex-1 p-6 relative flex flex-col justify-between border-b md:border-b-0 md:border-r border-zinc-900 bg-[#09090b]/40 min-h-[350px] md:min-h-0">
@@ -182,77 +326,131 @@ export function LustyLiveRadar({
         </div>
 
         {/* 🎯 RADAR MAP GRID CANVAS CONTAINER */}
-        <div className="relative w-full aspect-[2/1] max-h-72 my-6 flex items-center justify-center overflow-hidden border border-zinc-900/60 rounded-2xl bg-zinc-950/40">
+        <div 
+          className="relative w-full aspect-[2/1] max-h-72 my-6 flex items-center justify-center overflow-hidden border border-zinc-900/60 rounded-2xl bg-zinc-950/40 select-none cursor-grab active:cursor-grabbing touch-pan-y"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
           
-          {/* Grid lines */}
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(244,63,94,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(244,63,94,0.03)_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none" />
+          {/* Panning Transform Layer */}
+          <div 
+            className="absolute inset-0 w-full h-full flex items-center justify-center pointer-events-none"
+            style={{
+              transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0)`,
+              transition: isCentering ? 'transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)' : 'none'
+            }}
+          >
+            {/* Grid lines */}
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(244,63,94,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(244,63,94,0.03)_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none" />
 
-          {/* Orbital Rings - Replicating image_65abb8.png design */}
-          <div className="absolute w-[85%] h-[170%] border border-zinc-800/40 rounded-full opacity-60 pointer-events-none" />
-          <div className="absolute w-[60%] h-[120%] border border-zinc-800/60 rounded-full pointer-events-none" />
-          <div className="absolute w-[35%] h-[70%] border border-zinc-800/80 rounded-full pointer-events-none" />
+            {/* Orbital Rings */}
+            <div className="absolute w-[85%] h-[170%] border border-zinc-800/40 rounded-full opacity-60 pointer-events-none" />
+            <div className="absolute w-[60%] h-[120%] border border-zinc-800/60 rounded-full pointer-events-none" />
+            <div className="absolute w-[35%] h-[70%] border border-zinc-800/80 rounded-full pointer-events-none" />
 
-          {/* Radar Sweep Animation Effect */}
-          <div className="absolute inset-0 bg-gradient-to-tr from-pink-500/0 via-pink-500/0 to-pink-500/5 origin-center animate-spin pointer-events-none" style={{ animationDuration: '4s' }} />
+            {/* Radar Sweep Animation Effect */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-pink-500/0 via-pink-500/0 to-pink-500/5 origin-center animate-spin pointer-events-none" style={{ animationDuration: '4s' }} />
 
-          {/* Center Point Indicator: YOU */}
-          <div className="absolute z-10 flex flex-col items-center justify-center">
-            <div className="w-3.5 h-3.5 bg-pink-500 rounded-full border-2 border-zinc-950 shadow-[0_0_12px_rgba(236,72,153,0.8)]" />
-            <span className="text-[8px] font-black tracking-widest text-pink-500 uppercase mt-1 font-mono bg-zinc-950/80 px-1 rounded">You</span>
+            {/* Center Point Indicator: YOU */}
+            <div className="absolute z-10 flex flex-col items-center justify-center pointer-events-auto">
+              {showPulsePing && (
+                <div className="absolute w-14 h-14 bg-pink-500/40 rounded-full animate-ping border border-pink-400 pointer-events-none" />
+              )}
+              <div className="w-3.5 h-3.5 bg-pink-500 rounded-full border-2 border-zinc-950 shadow-[0_0_12px_rgba(236,72,153,0.8)]" />
+              <span className="text-[8px] font-black tracking-widest text-pink-500 uppercase mt-1 font-mono bg-zinc-950/80 px-1 rounded">You</span>
+            </div>
+
+            {/* Dynamic Map Placement Loops */}
+            {isLoading ? (
+              <div className="text-xs font-mono text-zinc-600 animate-pulse">Positioning local nodes...</div>
+            ) : filteredHosts.length === 0 ? (
+              <div className="text-center z-20 px-4 py-6 bg-zinc-950/90 border border-zinc-800 rounded-2xl max-w-xs pointer-events-auto">
+                <span className="text-xl text-zinc-500 block mb-1">🔍</span>
+                <p className="text-xs font-bold text-zinc-300">No Hosts Match Filters</p>
+                <p className="text-[10px] text-zinc-500 mt-1">Try adjusting your online status, rating, or rate filters.</p>
+              </div>
+            ) : (
+              filteredHosts.map((host, idx) => {
+                // Translate coordinate floats (-1 to +1 space) into canvas positioning percentages
+                const leftPercent = Math.min(Math.max(50 + host.lng_offset * 40, 10), 90);
+                const topPercent = Math.min(Math.max(50 + host.lat_offset * 40, 10), 90);
+                const isSelected = selectedHost?.id === host.id;
+
+                return (
+                  <button
+                    type="button"
+                    key={host.id || `host_${idx}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedHost(host);
+                    }}
+                    style={{ left: `${leftPercent}%`, top: `${topPercent}%` }}
+                    className="absolute transform -translate-x-1/2 -translate-y-1/2 group transition-all duration-300 z-20 cursor-pointer focus:outline-none pointer-events-auto"
+                  >
+                    <div className="relative">
+                      {/* Custom Premium Hover Tooltip card showing status, rating and name */}
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 w-max bg-[#0c0c0e] border border-zinc-800 rounded-lg px-2.5 py-1.5 opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 pointer-events-none transition-all duration-200 z-30 shadow-[0_4px_20px_rgba(0,0,0,0.9)] flex flex-col items-center gap-0.5 min-w-[90px]">
+                        <span className="text-[10px] font-black text-white tracking-wide">
+                          @{host.username}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-[8px] font-mono">
+                          <span className="text-amber-400 font-bold flex items-center gap-0.5">
+                            ★ {(host.rating || 4.8).toFixed(1)}
+                          </span>
+                          <span className="text-zinc-600">•</span>
+                          <span className={`w-1.5 h-1.5 rounded-full ${host.is_online ? 'bg-emerald-500' : 'bg-zinc-500'}`} />
+                          <span className="uppercase tracking-wider text-zinc-400">
+                            {host.is_online ? 'Online' : 'Offline'}
+                          </span>
+                        </div>
+                        <span className="text-[9px] text-pink-500 font-mono font-bold">${host.hourly_rate}/hr</span>
+                        {/* Little Arrow Indicator */}
+                        <div className="w-1.5 h-1.5 bg-[#0c0c0e] border-r border-b border-zinc-800 rotate-45 absolute -bottom-[4px] left-1/2 -translate-x-1/2" />
+                      </div>
+
+                      <div className={`w-9 h-9 rounded-full overflow-hidden border-2 transition ${
+                        isSelected 
+                          ? 'border-pink-500 scale-110 shadow-[0_0_15px_rgba(236,72,153,0.6)]' 
+                          : 'border-zinc-700 hover:border-zinc-400 hover:scale-105'
+                      }`}>
+                        <img 
+                          src={host.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80'} 
+                          alt="" 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-zinc-950 ${host.is_online ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
 
-          {/* Dynamic Map Placement Loops */}
-          {isLoading ? (
-            <div className="text-xs font-mono text-zinc-600 animate-pulse">Positioning local nodes...</div>
-          ) : (
-            hosts.map((host, idx) => {
-              // Translate coordinate floats (-1 to +1 space) into canvas positioning percentages
-              const leftPercent = 50 + host.lng_offset * 40;
-              const topPercent = 50 + host.lat_offset * 40;
-              const isSelected = selectedHost?.id === host.id;
-
-              return (
-                <button
-                  type="button"
-                  key={host.id || `host_${idx}`}
-                  onClick={() => setSelectedHost(host)}
-                  style={{ left: `${leftPercent}%`, top: `${topPercent}%` }}
-                  className="absolute transform -translate-x-1/2 -translate-y-1/2 group transition-all duration-300 z-20 cursor-pointer focus:outline-none"
-                >
-                  <div className="relative">
-                    {/* Custom Premium Hover Tooltip card showing status and name */}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 w-max bg-[#0c0c0e] border border-zinc-800 rounded-lg px-2.5 py-1.5 opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 pointer-events-none transition-all duration-200 z-30 shadow-[0_4px_20px_rgba(0,0,0,0.9)] flex flex-col items-center gap-0.5 min-w-[90px]">
-                      <span className="text-[10px] font-black text-white tracking-wide">
-                        @{host.username}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <span className={`w-1.5 h-1.5 rounded-full ${host.is_online ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.5)]' : 'bg-zinc-500'}`} />
-                        <span className="text-[8px] font-mono uppercase tracking-wider text-zinc-400">
-                          {host.is_online ? 'Active Now' : 'Offline'}
-                        </span>
-                      </div>
-                      <span className="text-[9px] text-pink-500 font-mono font-bold">${host.hourly_rate}/hr</span>
-                      {/* Little Arrow Indicator */}
-                      <div className="w-1.5 h-1.5 bg-[#0c0c0e] border-r border-b border-zinc-800 rotate-45 absolute -bottom-[4px] left-1/2 -translate-x-1/2" />
-                    </div>
-
-                    <div className={`w-9 h-9 rounded-full overflow-hidden border-2 transition ${
-                      isSelected 
-                        ? 'border-pink-500 scale-110 shadow-[0_0_15px_rgba(236,72,153,0.6)]' 
-                        : 'border-zinc-700 hover:border-zinc-400 hover:scale-105'
-                    }`}>
-                      <img 
-                        src={host.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80'} 
-                        alt="" 
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-zinc-950 ${host.is_online ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
-                  </div>
-                </button>
-              );
-            })
+          {/* Overlay Floating Recenter Button when Panned */}
+          {isPanned && (
+            <button
+              id="center-on-me-overlay-button"
+              type="button"
+              onClick={handleCenterLocation}
+              className="absolute bottom-3 right-3 z-30 bg-pink-500 hover:bg-pink-600 text-white font-mono text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-xl shadow-[0_0_15px_rgba(236,72,153,0.6)] flex items-center gap-1.5 transition-all animate-bounce cursor-pointer"
+            >
+              <LocateFixed className="w-3.5 h-3.5" />
+              <span>Center on Me</span>
+            </button>
           )}
+
+          {/* Instruction hint for panning */}
+          <div className="absolute top-2 left-2 z-20 pointer-events-none text-[9px] font-mono text-zinc-500/70 bg-zinc-950/60 px-2 py-0.5 rounded border border-zinc-900/60 flex items-center gap-1">
+            <Move className="w-2.5 h-2.5 text-zinc-400" />
+            <span>Drag map to pan</span>
+          </div>
+
         </div>
 
         {/* Bottom Banner Descriptor */}
@@ -278,6 +476,9 @@ export function LustyLiveRadar({
               <div className="flex items-center gap-1.5">
                 <h3 className="text-base font-black text-white">@{selectedHost.username}</h3>
                 <Award className="w-4 h-4 text-pink-500" />
+                <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-1 font-mono ml-auto">
+                  ★ {(selectedHost.rating || 4.8).toFixed(1)}
+                </span>
               </div>
               
               <p className="text-xs text-zinc-400 mt-1 flex items-center gap-1">

@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { UploadCloud, Video, Film, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
-import { SNAP_FILTERS, VideoFilter } from '../utils/filterEffects';
+import { UploadCloud, Video, Film, CheckCircle2, AlertCircle, Sparkles, MapPin } from 'lucide-react';
+import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { SNAP_FILTERS, VideoFilter, applyTargetedFaceSmoothing } from '../utils/filterEffects';
+import { RELIABLE_FALLBACK_VIDEO } from '../utils/videoUtils';
 
 export interface FaceTrackingMetrics {
   detected: boolean;
@@ -13,7 +15,7 @@ export interface FaceTrackingMetrics {
 }
 
 interface MaskOverlayProps {
-  type: 'dog' | 'mustache' | 'makeup' | 'glasses' | 'sparkle' | 'none';
+  type: 'smooth' | 'cyber-visor' | 'neon-horns' | 'thermal' | 'anime-eyes' | 'glitch' | 'halo' | 'dog' | 'mustache' | 'makeup' | 'glasses' | 'sparkle' | 'none';
   scaleSize?: string;
   face?: FaceTrackingMetrics;
   rawLandmarks?: any[];
@@ -400,6 +402,9 @@ export function LoungeShortsStudio({
   const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
+  const [pinnedLocation, setPinnedLocation] = useState('London, Mayfair');
+  const [customLocation, setCustomLocation] = useState('');
+  const [isCustomLoc, setIsCustomLoc] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const isVipTab = false;
 
@@ -412,15 +417,6 @@ export function LoungeShortsStudio({
     facingModeRef.current = facingMode;
   }, [facingMode]);
 
-  const [faceMetrics, setFaceMetrics] = useState<FaceTrackingMetrics>({
-    detected: true,
-    x: 50,      // Centered
-    y: 48,      // Eye-level ratio
-    width: 55,  // Scale frame
-    height: 55,
-    rollAngle: 0 // Degrees tilt
-  });
-
   const faceMetricsRef = useRef<FaceTrackingMetrics>({
     detected: true,
     x: 50,
@@ -431,121 +427,49 @@ export function LoungeShortsStudio({
   });
 
   const faceMeshRef = useRef<any>(null);
+  const isFaceMeshReadyRef = useRef<boolean>(false);
   const activeDetectionRef = useRef<boolean>(false);
-  const [rawMeshPoints, setRawMeshPoints] = useState<any[]>([]);
+  const isProcessingRef = useRef<boolean>(false);
   const rawMeshPointsRef = useRef<any[]>([]);
   const lastDetectionTimeRef = useRef<number>(0);
   const lastSendTimeRef = useRef<number>(0);
 
-  // Load MediaPipe FaceMesh & Camera Utility CDN scripts
+  // Load MediaPipe FaceLandmarker via @mediapipe/tasks-vision
   useEffect(() => {
     let active = true;
 
-    const loadScripts = async () => {
+    const initTracking = async () => {
       try {
-        if (!(window as any).FaceMesh) {
-          const srcCamera = "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
-          const srcFaceMesh = "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js";
+        if (faceMeshRef.current || isFaceMeshReadyRef.current) return;
 
-          await loadScript(srcCamera);
-          await loadScript(srcFaceMesh);
-        }
-        
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+        );
+
+        const faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numFaces: 1
+        });
+
         if (active) {
-          initTracking();
+          faceMeshRef.current = faceLandmarker;
+          isFaceMeshReadyRef.current = true;
+          console.log("MediaPipe FaceLandmarker engine initialized successfully!");
         }
       } catch (err) {
-        console.warn("MediaPipe FaceMesh scripts failed to load, falling back to graceful simulation mode:", err);
+        console.warn("Failed to initialize FaceLandmarker, falling back to simulation mode:", err);
       }
     };
 
-    const loadScript = (src: string) => {
-      return new Promise<void>((resolve, reject) => {
-        const existing = document.querySelector(`script[src="${src}"]`);
-        if (existing) {
-          resolve();
-          return;
-        }
-        const script = document.createElement('script');
-        script.src = src;
-        script.crossOrigin = "anonymous";
-        script.async = true;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`Failed to load script ${src}`));
-        document.head.appendChild(script);
-      });
-    };
-
-    const initTracking = () => {
-      try {
-        if (!(window as any).FaceMesh) return;
-        
-        const faceMesh = new (window as any).FaceMesh({
-          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-        });
-
-        faceMesh.setOptions({
-          maxNumFaces: 1,
-          refineLandmarks: false,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5
-        });
-
-        faceMesh.onResults((results: any) => {
-          if (!active) return;
-          if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-            const landmarks = results.multiFaceLandmarks[0];
-            
-            const top = landmarks[10];
-            const bottom = landmarks[152];
-            const left = landmarks[33];
-            const right = landmarks[263];
-
-            if (top && bottom && left && right) {
-              const isUserMode = facingModeRef.current === 'user';
-              
-              const rawX = ((left.x + right.x) / 2) * 100;
-              const centerX = isUserMode ? (100 - rawX) : rawX;
-              const centerY = ((top.y + bottom.y) / 2) * 100;
-              
-              const scaleWidth = Math.abs(right.x - left.x) * 2.2 * 100;
-              
-              const angleRad = Math.atan2(right.y - left.y, right.x - left.x);
-              const angleDeg = isUserMode ? -(angleRad * (180 / Math.PI)) : (angleRad * (180 / Math.PI));
-
-              const metrics: FaceTrackingMetrics = {
-                detected: true,
-                x: centerX,
-                y: centerY,
-                width: scaleWidth,
-                height: scaleWidth,
-                rollAngle: angleDeg
-              };
-
-              faceMetricsRef.current = metrics;
-              setFaceMetrics(metrics);
-              rawMeshPointsRef.current = landmarks;
-              setRawMeshPoints(landmarks);
-              lastDetectionTimeRef.current = Date.now();
-              activeDetectionRef.current = true;
-            }
-          } else {
-            rawMeshPointsRef.current = [];
-            setRawMeshPoints([]);
-          }
-        });
-
-        faceMeshRef.current = faceMesh;
-        console.log("MediaPipe FaceMesh engine initialized successfully!");
-      } catch (err) {
-        console.warn("Failed to initialize FaceMesh:", err);
-      }
-    };
-
-    loadScripts();
+    initTracking();
 
     return () => {
       active = false;
+      isFaceMeshReadyRef.current = false;
       rawMeshPointsRef.current = [];
       if (faceMeshRef.current) {
         try {
@@ -570,24 +494,22 @@ export function LoungeShortsStudio({
       
       // Fallback transition
       activeDetectionRef.current = false;
-      rawMeshPointsRef.current = [];
-      setRawMeshPoints([]);
+      if (rawMeshPointsRef.current.length > 0) {
+        rawMeshPointsRef.current = [];
+      }
 
       // Math cycle simulating subtle natural live micro-movements of a head stream
-      const time = Date.now() * 0.0015;
+      const now = Date.now();
+      const time = now * 0.0015;
       const metrics = {
         detected: true,
-        // Generates life-like shifting tracking positions over the x/y plane
         x: 50 + Math.sin(time * 0.8) * 4,
         y: 46 + Math.cos(time * 1.1) * 2,
-        // Simulates minor proximity depth shifts from the camera lens
         width: 52 + Math.sin(time * 0.5) * 3,
         height: 52 + Math.sin(time * 0.5) * 3,
-        // Tracks natural head roll tilts (-6deg to +6deg)
         rollAngle: Math.sin(time * 0.6) * 6
       };
       faceMetricsRef.current = metrics;
-      setFaceMetrics(metrics);
 
       animationFrameId = requestAnimationFrame(simulateLiveTrackingLoop);
     };
@@ -611,13 +533,62 @@ export function LoungeShortsStudio({
       const canvas = canvasRef.current;
       const video = localVideoRef.current;
       if (canvas && video && video.readyState >= 2) {
-        // Send frame to FaceMesh asynchronously at a throttled rate (every 66ms / ~15fps)
+        // Send frame to FaceLandmarker at a throttled rate (every 66ms / ~15fps)
         const now = Date.now();
-        if (faceMeshRef.current && now - lastSendTimeRef.current > 66) {
+        if (
+          faceMeshRef.current && 
+          isFaceMeshReadyRef.current && 
+          !isProcessingRef.current && 
+          now - lastSendTimeRef.current > 66
+        ) {
           lastSendTimeRef.current = now;
-          faceMeshRef.current.send({ image: video }).catch((err: any) => {
-            console.warn("FaceMesh send error:", err);
-          });
+          isProcessingRef.current = true;
+          try {
+            const results = faceMeshRef.current.detectForVideo(video, now);
+            if (active && results && results.faceLandmarks && results.faceLandmarks.length > 0) {
+              const landmarks = results.faceLandmarks[0];
+              
+              const top = landmarks[10];
+              const bottom = landmarks[152];
+              const left = landmarks[33];
+              const right = landmarks[263];
+
+              if (top && bottom && left && right) {
+                const isUserMode = facingModeRef.current === 'user';
+                
+                const rawX = ((left.x + right.x) / 2) * 100;
+                const centerX = isUserMode ? (100 - rawX) : rawX;
+                const centerY = ((top.y + bottom.y) / 2) * 100;
+                
+                const scaleWidth = Math.abs(right.x - left.x) * 2.2 * 100;
+                
+                const angleRad = Math.atan2(right.y - left.y, right.x - left.x);
+                const angleDeg = isUserMode ? -(angleRad * (180 / Math.PI)) : (angleRad * (180 / Math.PI));
+
+                const metrics: FaceTrackingMetrics = {
+                  detected: true,
+                  x: centerX,
+                  y: centerY,
+                  width: scaleWidth,
+                  height: scaleWidth,
+                  rollAngle: angleDeg
+                };
+
+                faceMetricsRef.current = metrics;
+                rawMeshPointsRef.current = landmarks;
+                lastDetectionTimeRef.current = Date.now();
+                activeDetectionRef.current = true;
+              }
+            } else {
+              if (rawMeshPointsRef.current.length > 0) {
+                rawMeshPointsRef.current = [];
+              }
+            }
+          } catch (err: any) {
+            console.warn("FaceLandmarker detection error:", err);
+          } finally {
+            isProcessingRef.current = false;
+          }
         }
 
         const ctx = canvas.getContext('2d');
@@ -635,9 +606,17 @@ export function LoungeShortsStudio({
           // Draw the thematic vector overlays directly on the canvas context to bake them into recorded files
           const w = canvas.width;
           const h = canvas.height;
-          ctx.save();
 
           const landmarks = rawMeshPointsRef.current;
+          if (landmarks && landmarks.length > 0) {
+            // Apply targeted skin smoothing pass with evenodd masking (eyes and lips stay sharp)
+            if (activeFilter.maskType === 'smooth' || activeFilter.maskType === 'makeup' || activeFilter.id === 'soft-beauty' || activeFilter.id === 'porcelain-skin' || activeFilter.id === 'kawaii-pastel' || activeFilter.id === 'cyber-doll' || activeFilter.id === 'vintage-glam') {
+              applyTargetedFaceSmoothing(ctx, video, landmarks, 0.6, facingMode, activeFilter.shaderStyle || activeFilter.style);
+            }
+          }
+
+          ctx.save();
+
           if (landmarks && landmarks.length > 0 && activeFilter.maskType !== 'none') {
             const leftEyeOuter = landmarks[33];   // Left eye corner
             const rightEyeOuter = landmarks[263]; // Right eye corner
@@ -1177,7 +1156,7 @@ export function LoungeShortsStudio({
       if (storageError) {
         console.warn("Storage upload failed or bucket doesn't exist, utilizing high-quality mock stream url fallback:", storageError.message);
         // Fallback simulated URL so experience doesn't break in previews
-        publicUrl = 'https://assets.mixkit.co/videos/preview/mixkit-girl-with-neon-makeup-in-darkness-39832-large.mp4';
+        publicUrl = RELIABLE_FALLBACK_VIDEO;
       } else {
         // 🛠️ Updated to reference your exact [videos] bucket name
         const { data } = supabase.storage
@@ -1242,10 +1221,14 @@ export function LoungeShortsStudio({
         console.warn("Could not capture automatic thumbnail frame. Falling back to default cover.", thumbErr);
       }
 
-      // Save filter info in caption so that the playback can automatically apply it if matches!
+      // Save filter & pinned city location info in caption for fallback parsing!
+      const finalLocation = isCustomLoc && customLocation.trim() ? customLocation.trim() : pinnedLocation;
       let finalCaption = caption || 'Lounge video loop';
       if (activeFilter && activeFilter.id !== 'normal') {
         finalCaption += ` [filter:${activeFilter.id}]`;
+      }
+      if (finalLocation) {
+        finalCaption += ` [location:${finalLocation}]`;
       }
 
       // Insert tracking layer record mapping total cost pipeline parameters
@@ -1259,11 +1242,13 @@ export function LoungeShortsStudio({
             video_url: publicUrl,
             thumbnail_url: thumbnailPublicUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800',
             caption: finalCaption,
-            title: finalCaption
+            title: finalCaption,
+            location: finalLocation,
+            city: finalLocation
           }]);
         dbError = error;
       } else {
-        // Write to 'lounge_shorts' table for Lounge Broadcasts
+        // Write to 'lounge_shorts' table for Lounge Broadcasts with location metadata
         const { error } = await supabase
           .from('lounge_shorts')
           .insert([{
@@ -1273,7 +1258,9 @@ export function LoungeShortsStudio({
             caption: finalCaption,
             content_type: 'video',
             views_count: 0,
-            likes_count: 0
+            likes_count: 0,
+            location: finalLocation,
+            city: finalLocation
           }]);
         dbError = error;
       }
@@ -1323,6 +1310,7 @@ export function LoungeShortsStudio({
               playsInline 
               webkit-playsinline="true" 
               autoPlay 
+              crossOrigin="anonymous"
               className="w-full h-full object-cover transition-all duration-300" 
               style={{ filter: activeFilter.shaderStyle !== 'none' ? activeFilter.shaderStyle : (activeFilter.style !== 'none' ? activeFilter.style : undefined) }}
             />
@@ -1353,9 +1341,6 @@ export function LoungeShortsStudio({
         ) : isRecording ? (
           <div className="w-full aspect-[9/16] max-h-[320px] rounded-2xl overflow-hidden bg-black border border-pink-500/50 relative flex flex-col justify-between">
             <canvas ref={canvasRef} width={480} height={854} className="w-full h-full object-cover" />
-            
-            {/* 🎯 THE FIX: Bound to face coordinates matrix for real face tracking physics */}
-            <MaskOverlay type={activeFilter.maskType} face={faceMetrics} rawLandmarks={rawMeshPoints} facingMode={facingMode} />
 
             <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/70 px-2.5 py-1 rounded-full border border-red-500/30 z-10">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
@@ -1460,15 +1445,67 @@ export function LoungeShortsStudio({
 
 
 
-      {/* Input Caption Layer Panel Block */}
+      {/* Input Caption Layer & City Location Selection Panel Block */}
       {(previewUrl || isRecording) && (
-        <input 
-          type="text" 
-          placeholder="Add short description or caption..." 
-          value={caption}
-          onChange={(e) => setCaption(e.target.value)}
-          className="w-full mt-3 bg-zinc-950 border border-zinc-900 focus:border-zinc-800 text-xs px-3 py-2 rounded-xl focus:outline-none placeholder-zinc-600 text-zinc-200 font-sans"
-        />
+        <div className="w-full mt-3 space-y-2">
+          <input 
+            type="text" 
+            placeholder="Add short description or caption..." 
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            className="w-full bg-zinc-950 border border-zinc-900 focus:border-zinc-800 text-xs px-3 py-2 rounded-xl focus:outline-none placeholder-zinc-600 text-zinc-200 font-sans"
+          />
+
+          {/* 📍 Location Metadata Field & City Pinning */}
+          <div className="p-3 bg-zinc-950/80 border border-zinc-900 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-zinc-300 flex items-center gap-1.5 text-[11px]">
+                <MapPin className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                <span>Pin Location / City</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsCustomLoc(!isCustomLoc)}
+                className="text-[10px] text-pink-400 hover:text-pink-300 font-medium underline cursor-pointer"
+              >
+                {isCustomLoc ? 'Select from presets' : '+ Custom City'}
+              </button>
+            </div>
+
+            {isCustomLoc ? (
+              <input
+                type="text"
+                placeholder="Enter custom city (e.g. London, Miami, Tokyo)..."
+                value={customLocation}
+                onChange={(e) => setCustomLocation(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 text-xs px-3 py-1.5 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-pink-500"
+              />
+            ) : (
+              <select
+                value={pinnedLocation}
+                onChange={(e) => setPinnedLocation(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 text-xs px-3 py-1.5 rounded-lg text-zinc-200 focus:outline-none focus:border-pink-500 cursor-pointer"
+              >
+                {[
+                  'London, Mayfair',
+                  'London, Kensington',
+                  'London, Chelsea',
+                  'Miami, South Beach',
+                  'Paris, Le Marais',
+                  'Dubai, Marina',
+                  'New York, Manhattan',
+                  'Los Angeles, Beverly Hills',
+                  'Tokyo, Shibuya',
+                  'Las Vegas',
+                  'Ibiza',
+                  'Amsterdam'
+                ].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
       )}
 
       {/* 🛠️ FOOTER INTERACTIVE CONTROL ROW BAR MATCH FROM image_661054.png */}

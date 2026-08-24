@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { Zap, Sparkles, AlertCircle } from 'lucide-react';
+import { executeCardPayment } from '../utils/processPayment';
 
 interface BoosterProps {
   videoId: string;
@@ -23,7 +24,7 @@ export function ActivePostBooster({
   const [isBoosted, setIsBoosted] = useState(false);
   const [boostTimeRemaining, setBoostTimeRemaining] = useState<string | null>(null);
 
-  const BOOSTER_PACKAGE_COST = 25.00; // Package Price Configuration
+  const BOOSTER_PACKAGE_COST = 50.00; // Updated to $50.00
 
   // Check live boost status from table
   const checkLiveBoostStatus = useCallback(async () => {
@@ -73,52 +74,54 @@ export function ActivePostBooster({
     setSuccessMessage(null);
 
     try {
-      console.log(`Forwarding $${BOOSTER_PACKAGE_COST.toFixed(2)} charge directly to Debit Card Gateway...`);
+      console.log(`Forwarding $${BOOSTER_PACKAGE_COST.toFixed(2)} charge directly to Flutterwave Gateway...`);
 
-      // 🎯 INTEGRATION TARGET: Invoke card payment processor here (e.g., Paystack/Flutterwave inline)
-      const isPaymentCaptured = true; // Temporary staging confirmation flag for testing
-
-      if (!isPaymentCaptured) {
-        setErrorMessage("Payment authentication failed. Card transaction declined.");
-        return;
-      }
-
-      // 🚀 Payment confirmed! Write the engagement multipliers straight to the database
       const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24);
+      expiresAt.setDate(expiresAt.getDate() + 7);
 
-      await supabase
-        .from('short_video_metrics')
-        .upsert({
-          video_id: videoId,
-          is_boosted: true,
-          boosted_until: expiresAt.toISOString(),
-          likes_count: 520,
-          views_count: 2450
-        }, { onConflict: 'video_id' });
+      await executeCardPayment({
+        userId: _currentUserId,
+        amount: BOOSTER_PACKAGE_COST,
+        description: '7-Day Post Visibility Boost Package',
+        metadata: {
+          videoId,
+          boostType: 'TopFeedAccelerator',
+          tx_ref_prefix: 'boost-'
+        },
+        onSuccess: async () => {
+          // 🚀 Payment confirmed! Write the engagement multipliers straight to the database
+          await supabase
+            .from('short_video_metrics')
+            .upsert({
+              video_id: videoId,
+              is_boosted: true,
+              boosted_until: expiresAt.toISOString(),
+              likes_count: 520,
+              views_count: 2450
+            }, { onConflict: 'video_id' });
 
-      // Also let's update short_videos table if it has boosting columns!
-      try {
-        await supabase
-          .from('short_videos')
-          .update({
-            is_boosted: true
-          })
-          .eq('id', videoId);
-      } catch (e) {
-        console.warn("Could not update short_videos boosting flag directly", e);
-      }
+          try {
+            await supabase
+              .from('short_videos')
+              .update({
+                is_boosted: true
+              })
+              .eq('id', videoId);
+          } catch (e) {
+            console.warn("Could not update short_videos boosting flag directly", e);
+          }
 
-      setSuccessMessage("💳 Card Charged Successfully! Your video booster package is now active.");
-      setIsBoosted(true);
-      setBoostTimeRemaining("24 Hours Left");
-      
-      if (onPaymentSuccess) {
-        onPaymentSuccess();
-      } else if (onBoostSuccess) {
-        onBoostSuccess();
-      }
-
+          setSuccessMessage("💳 Card Charged $50.00 Successfully! Your video is boosted to the top of the feed.");
+          setIsBoosted(true);
+          setBoostTimeRemaining("7 Days Left");
+          
+          if (onPaymentSuccess) {
+            onPaymentSuccess();
+          } else if (onBoostSuccess) {
+            onBoostSuccess();
+          }
+        }
+      });
     } catch (err: any) {
       setErrorMessage(err.message || "Network error during checkout authentication.");
     } finally {
@@ -151,10 +154,10 @@ export function ActivePostBooster({
           {/* Package Cost Settlement Display Box */}
           <div className="flex items-center justify-between bg-zinc-900/90 border border-zinc-850 p-4 rounded-xl mb-1">
             <span className="text-xs text-zinc-400 font-medium">
-              Package Cost:
+              Top Feed Package Cost:
             </span>
             <span className="text-sm font-black text-emerald-400 font-mono">
-              $25.00
+              $50.00
             </span>
           </div>
 
@@ -165,7 +168,7 @@ export function ActivePostBooster({
             disabled={isProcessing}
             className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-xs uppercase tracking-wider py-3.5 px-4 rounded-xl transition duration-250 hover:opacity-95 active:scale-[0.98] shadow-lg cursor-pointer text-center block disabled:opacity-50"
           >
-            {isProcessing ? "Authorizing Payment Gateway..." : "Pay & Activate Package"}
+            {isProcessing ? "Authorizing Payment Gateway..." : "Pay $50 & Boost to Top"}
           </button>
         </div>
       )}

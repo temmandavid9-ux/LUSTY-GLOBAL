@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { LoungeShortsFeed } from './LoungeShortsFeed';
 import { ReachAnalyticsPanel } from './ReachAnalyticsPanel';
+import { useVideoPrefetcher } from '../hooks/useVideoPrefetcher';
 
 interface ShortsFeedSystemProps {
   walletBalance?: number;
@@ -11,9 +12,41 @@ interface ShortsFeedSystemProps {
 export default function ShortsFeedSystem({ walletBalance: _walletBalance = 1450.00, onSpendFunds: _onSpendFunds, currentUserId }: ShortsFeedSystemProps) {
   // Keep only 'feed' and 'analytics' tabs, defaulting to Lounge Broadcasts 'feed'
   const [activeTab, setActiveTab] = useState<'feed' | 'analytics'>('feed');
+  const [feedPosts, setFeedPosts] = useState<any[]>([]);
+
+  // 🚀 VIDEO PREFETCHING UTILITY: Buffers the next TWO videos in the feed queue for instant playback on scroll
+  const { preloadedVideoIds, prefetchQueue } = useVideoPrefetcher(2);
+
+  const handleShortsLoaded = useCallback((shorts: any[]) => {
+    setFeedPosts(shorts);
+    if (shorts && shorts.length > 0) {
+      // Buffer the next 2 videos starting from index 0
+      prefetchQueue(shorts, 0);
+    }
+  }, [prefetchQueue]);
+
+  const handleActiveVideoChange = useCallback((activeVideo: any) => {
+    if (!feedPosts || feedPosts.length === 0) return;
+    const currentIndex = feedPosts.findIndex(p => p.id === activeVideo.id);
+    if (currentIndex !== -1) {
+      prefetchQueue(feedPosts, currentIndex);
+    }
+  }, [feedPosts, prefetchQueue]);
+
+  const handleActiveVideoProgress = useCallback((
+    currentIndex: number,
+    _currentVideoId: string | number,
+    _progressPercent: number,
+    _nextVideoId: string | number | null
+  ) => {
+    // Continuously ensure the next 2 videos in the feed queue are buffered in background
+    if (feedPosts && feedPosts.length > 0) {
+      prefetchQueue(feedPosts, currentIndex);
+    }
+  }, [feedPosts, prefetchQueue]);
 
   return (
-    <div className="w-full h-full bg-black relative flex flex-col">
+    <div id="ShortsFeedSystem" className="w-full h-full bg-black relative flex flex-col">
       
       {/* ── TOP NAVIGATION HEADER: FORCE LOUNGE ONLY ── */}
       <div className="absolute top-0 inset-x-0 h-16 bg-gradient-to-b from-black/80 to-transparent z-50 flex items-center justify-between px-4">
@@ -47,7 +80,13 @@ export default function ShortsFeedSystem({ walletBalance: _walletBalance = 1450.
         {activeTab === 'feed' ? (
           /* 🎥 Mounts your Lounge Shorts feed controller exclusively */
           <div className="w-full h-full">
-            <LoungeShortsFeed currentUserId={currentUserId} />
+            <LoungeShortsFeed 
+              currentUserId={currentUserId} 
+              preloadedVideoIds={preloadedVideoIds}
+              onShortsLoaded={handleShortsLoaded}
+              onActiveVideoChange={handleActiveVideoChange}
+              onActiveVideoProgress={handleActiveVideoProgress}
+            />
           </div>
         ) : (
           /* 📊 Mounts your secure, real-time private telemetry panel */
@@ -60,3 +99,4 @@ export default function ShortsFeedSystem({ walletBalance: _walletBalance = 1450.
     </div>
   );
 }
+

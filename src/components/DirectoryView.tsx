@@ -13,6 +13,16 @@ interface DirectoryViewProps {
   onAddBooking: (booking: Booking) => void;
 }
 
+// Helper function to shuffle an array randomly (Fisher-Yates Shuffle)
+const shuffleArray = <T,>(array: T[]): T[] => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
 export default function DirectoryView({ 
   onStartChat, 
   currentUser,
@@ -83,7 +93,7 @@ export default function DirectoryView({
   };
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
-  const [companions, setCompanions] = useState<Companion[]>([]);
+  const [profiles, setProfiles] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'newest' | 'top_rated' | 'closest'>('newest');
   const [gpsError, setGpsError] = useState<string | null>(null);
@@ -178,7 +188,9 @@ export default function DirectoryView({
 
   const requestGeolocation = () => {
     if (!navigator.geolocation) {
+      console.warn("Geolocation is not supported by this browser. Using default London coordinates.");
       setGpsError('Geolocation is not supported by your browser.');
+      setUserCoords({ lat: 51.5074, lon: -0.1278 });
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -190,10 +202,16 @@ export default function DirectoryView({
         setGpsError(null);
       },
       (error) => {
-        console.warn('Geolocation blocked or failed in DirectoryView:', error);
+        // Graceful Fallback: Handle rejection, permission blocks, or timeouts without crashing
+        console.warn('Geolocation blocked or failed in DirectoryView. Falling back to default feed:', error.message || error);
+        setUserCoords({ lat: 51.5074, lon: -0.1278 }); // default baseline coordinates (London)
         setGpsError('Location access was denied or is unavailable. Defaulting to London coords.');
       },
-      { enableHighAccuracy: true, timeout: 8000 }
+      { 
+        enableHighAccuracy: false, // Use coarse location (WiFi/cellular) instead of waiting for full GPS
+        timeout: 10000,            // Extend to 10 seconds for slower mobile/emulator GPS fixes
+        maximumAge: 300000         // Accept a cached position from the last 5 minutes instantly
+      }
     );
   };
 
@@ -202,88 +220,144 @@ export default function DirectoryView({
   }, []);
 
   useEffect(() => {
-    async function loadCompanions(silent = false) {
+    async function loadProfiles(silent = false) {
       if (!silent) setIsLoading(true);
       try {
-        const { data, error } = await supabase
+        let activeUserId = currentUser?.id;
+        let activeUsername = currentUser?.username;
+
+        if (!activeUserId) {
+          try {
+            const { data: authData } = await supabase.auth.getUser();
+            if (authData?.user) {
+              activeUserId = authData.user.id;
+              if (authData.user.user_metadata?.username) {
+                activeUsername = authData.user.user_metadata.username;
+              }
+            }
+          } catch (e) {
+            console.warn("Could not retrieve auth session user:", e);
+          }
+        }
+
+        let query = supabase
           .from('profiles')
           .select('*')
           .order('is_verified', { ascending: false })
           .order('created_at', { ascending: false });
+
+        if (activeUserId) {
+          query = query.neq('id', activeUserId);
+        }
+
+        const { data, error } = await query;
         
         if (error) throw error;
 
         if (data && data.length > 0) {
-          const mapped = data.map((profile: any) => {
-            const rawTags = Array.isArray(profile.tags) ? profile.tags : [];
-            // Remove '#' symbol for clean tag displaying or matching
-            const tags = rawTags.map((t: string) => t.startsWith('#') ? t.substring(1) : t);
-            
-            const latOffset = Number(profile.lat_offset) || 0;
-            const lngOffset = Number(profile.lng_offset) || 0;
-            const hostLat = userCoords.lat + (latOffset * 0.1);
-            const hostLon = userCoords.lon + (lngOffset * 0.1);
-            const miles = calculateDistanceInMiles(userCoords.lat, userCoords.lon, hostLat, hostLon);
-            const formattedDistance = miles < 10 ? miles.toFixed(1) : Math.round(miles).toString();
-            const distanceStr = `~${formattedDistance} miles away`;
-
-            return {
-              id: profile.id,
-              username: profile.username || 'anonymous',
-              name: profile.name || profile.username || 'Anonymous Host',
-              avatar: profile.avatar_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-              images: [
-                profile.cover_image_url || profile.avatar_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600',
-                'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600'
-              ],
-              isVIP: !!(profile.is_verified || profile.tier_badge === 'VIP SELECT'),
-              is_verified: !!profile.is_verified,
-              isVerified: !!profile.is_verified,
-              isOnline: profile.is_online === true || (profile.last_seen && new Date(profile.last_seen).getTime() > Date.now() - 5 * 60 * 1000),
-              lastSeen: profile.last_seen,
-              age: profile.age || 24,
-              location: profile.location || 'London, Mayfair',
-              distance: distanceStr,
-              distanceMiles: miles,
-              ratePerHour: profile.hourly_rate || 250,
-              bio: profile.bio || 'Verified VIP guest. Rates available on demand 🔒',
-              default_caption: profile.default_caption || profile.title || profile.bio || 'Verified VIP guest. Rates available on demand 🔒',
-              tags: tags,
-              rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT') ? 5.0 : (profile.rating || 4.9),
-              avg_rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT') ? 5.0 : (profile.avg_rating || profile.rating || 4.9),
-              reviewsCount: profile.reviews_count || 42,
-              verifiedAt: profile.verified_at || 'June 2026',
-              languages: profile.languages || ['English'],
-              created_at: profile.created_at || new Date().toISOString()
-            };
+          const currentUsernameLower = (activeUsername || '').toLowerCase();
+          const filteredMapped = data.filter((p: any) => {
+            const usernameLower = (p.username || '').toLowerCase();
+            const nameLower = (p.name || '').toLowerCase();
+            const isTest = usernameLower.includes('test') || nameLower.includes('test') || usernameLower === 'rls deletion test' || nameLower === 'rls deletion test';
+            const isCurrentUser = (activeUserId && p.id === activeUserId) || (currentUsernameLower && usernameLower === currentUsernameLower);
+            return !isTest && !isCurrentUser;
           });
-          setCompanions(mapped);
+          setProfiles(filteredMapped);
         } else {
-          setCompanions(COMPANIONS);
+          setProfiles([]);
         }
       } catch (err) {
         console.warn("Supabase loadCompanions failed, falling back to mock content:", err);
-        setCompanions(COMPANIONS);
+        setProfiles([]);
       } finally {
         if (!silent) setIsLoading(false);
       }
     }
 
-    loadCompanions();
+    loadProfiles();
 
     // Subscribe to real live changes on the profiles database table
     const profileSubscription = supabase
       .channel(`live_status_updates_${Math.random().toString(36).substring(2, 11)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
         console.log("🔄 Real-time database change detected! Syncing live directories...");
-        loadCompanions(true); // silent background update to prevent page flickers
+        loadProfiles(true); // silent background update to prevent page flickers
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(profileSubscription);
     };
-  }, [userCoords.lat, userCoords.lon]);
+  }, [currentUser?.id, currentUser?.username]); // Runs when currentUser changes
+
+  // Dynamically map loaded profiles to Companions utilizing current coordinates
+  const companions = useMemo<Companion[]>(() => {
+    const listToMap = profiles.length > 0 ? profiles : COMPANIONS;
+    const currentUsernameLower = (currentUser?.username || '').toLowerCase();
+
+    // Filter out currently logged-in user from the companion feed
+    const filteredList = listToMap.filter((p: any) => {
+      const isSelfId = currentUser?.id && p.id === currentUser.id;
+      const isSelfUsername = currentUsernameLower && (p.username || '').toLowerCase() === currentUsernameLower;
+      return !isSelfId && !isSelfUsername;
+    });
+
+    return filteredList.map((profile: any) => {
+      const rawTags = Array.isArray(profile.tags) ? profile.tags : [];
+      // Remove '#' symbol for clean tag displaying or matching
+      const tags = rawTags.map((t: string) => t.startsWith('#') ? t.substring(1) : t);
+      
+      const loc = profile.location || 'London, Mayfair';
+      const hasValidUserCoords = userCoords && userCoords.lat !== 0 && userCoords.lon !== 0;
+
+      let distanceStr = "Location unavailable";
+      let miles = 9999;
+
+      if (loc.toLowerCase().includes('remote') || profile.is_remote) {
+        distanceStr = "Remote session";
+        miles = 0;
+      } else if (hasValidUserCoords) {
+        const latOffset = Number(profile.lat_offset) || 0;
+        const lngOffset = Number(profile.lng_offset) || 0;
+        const hostLat = userCoords.lat + (latOffset * 0.1);
+        const hostLon = userCoords.lon + (lngOffset * 0.1);
+        miles = calculateDistanceInMiles(userCoords.lat, userCoords.lon, hostLat, hostLon);
+        const formattedDistance = miles < 10 ? miles.toFixed(1) : Math.round(miles).toString();
+        distanceStr = `~${formattedDistance} miles away`;
+      }
+
+      return {
+        id: profile.id,
+        username: profile.username || 'anonymous',
+        name: profile.name || profile.username || 'Anonymous Host',
+        avatar: profile.avatar_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+        images: [
+          profile.cover_image_url || profile.avatar_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600',
+          'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600'
+        ],
+        isVIP: !!(profile.is_verified || profile.tier_badge === 'VIP SELECT'),
+        is_verified: !!profile.is_verified,
+        isVerified: !!profile.is_verified,
+        isOnline: profile.is_online === true || (profile.last_seen && new Date(profile.last_seen).getTime() > Date.now() - 5 * 60 * 1000),
+        lastSeen: profile.last_seen,
+        age: profile.age || 24,
+        location: profile.location || 'London, Mayfair',
+        distance: distanceStr,
+        distanceMiles: miles,
+        ratePerHour: profile.hourly_rate || 250,
+        bio: profile.bio || 'Verified VIP guest. Rates available on demand 🔒',
+        default_caption: profile.default_caption || profile.title || profile.bio || 'Verified VIP guest. Rates available on demand 🔒',
+        tags: tags,
+        rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT') ? 5.0 : (profile.rating || 4.9),
+        avg_rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT') ? 5.0 : (profile.avg_rating || profile.rating || 4.9),
+        reviewsCount: profile.reviews_count || 42,
+        verifiedAt: profile.verified_at || 'June 2026',
+        languages: profile.languages || ['English'],
+        created_at: profile.created_at || new Date().toISOString()
+      };
+    });
+  }, [profiles, userCoords]);
 
   // Aggregate all unique tags from currently loaded companions
   const allTags = Array.from(
@@ -335,29 +409,31 @@ export default function DirectoryView({
   });
 
   const sortedCompanions = useMemo(() => {
-    const sorted = [...filteredCompanions].sort((a, b) => {
-      if (sortBy === 'newest') {
-        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return dateB - dateA;
-      }
-      
-      if (sortBy === 'top_rated') {
-        const ratingA = a.avg_rating !== undefined && a.avg_rating !== null ? Number(a.avg_rating) : (a.rating || 0);
-        const ratingB = b.avg_rating !== undefined && b.avg_rating !== null ? Number(b.avg_rating) : (b.rating || 0);
-        return ratingB - ratingA;
-      }
-      
-      if (sortBy === 'closest') {
-        const distA = a.distanceMiles !== undefined ? a.distanceMiles : (a.distance ? parseFloat(a.distance.replace(/[^\d.]/g, '')) || 9999 : 9999);
-        const distB = b.distanceMiles !== undefined ? b.distanceMiles : (b.distance ? parseFloat(b.distance.replace(/[^\d.]/g, '')) || 9999 : 9999);
-        return distA - distB;
-      }
-      return 0;
-    });
+    // Separate verified and unverified profiles
+    const verified = filteredCompanions.filter(c => c.is_verified || c.isVerified);
+    const unverified = filteredCompanions.filter(c => !(c.is_verified || c.isVerified));
+
+    let sortedVerified = shuffleArray(verified);
+    let sortedUnverified = shuffleArray(unverified);
+
+    if (sortBy === 'newest') {
+      sortedVerified.sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0));
+      sortedUnverified.sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0));
+    } else if (sortBy === 'top_rated') {
+      const getRating = (item: Companion) => item.avg_rating !== undefined && item.avg_rating !== null ? Number(item.avg_rating) : (item.rating || 0);
+      sortedVerified.sort((a, b) => getRating(b) - getRating(a));
+      sortedUnverified.sort((a, b) => getRating(b) - getRating(a));
+    } else if (sortBy === 'closest') {
+      const getDist = (item: Companion) => item.distanceMiles !== undefined ? item.distanceMiles : (item.distance ? parseFloat(item.distance.replace(/[^\d.]/g, '')) || 9999 : 9999);
+      sortedVerified.sort((a, b) => getDist(a) - getDist(b));
+      sortedUnverified.sort((a, b) => getDist(a) - getDist(b));
+    }
+
+    // Always place verified profiles first
+    const combined = [...sortedVerified, ...sortedUnverified];
 
     // Deduplicate profiles by ID to avoid any potential duplicate cards in the grid layout
-    return Array.from(new Map(sorted.map(item => [item.id, item])).values());
+    return Array.from(new Map(combined.map(item => [item.id, item])).values());
   }, [filteredCompanions, sortBy]);
 
   return (
@@ -370,7 +446,7 @@ export default function DirectoryView({
           <span className="text-[10px] bg-pink-500/20 text-pink-400 border border-pink-500/30 px-2 py-0.5 rounded-full font-mono uppercase tracking-widest font-bold">VIP Hub</span>
         </h1>
         <p className="text-xs text-zinc-400 mt-1">
-          Each host is double-verified via secure biometric checks. Propose immediate rendezvous, direct message, or reserve safe escrow bookings.
+          Each host is double-verified. Propose immediate rendezvous, direct message, or reserve safe escrow bookings.
         </p>
       </div>
 

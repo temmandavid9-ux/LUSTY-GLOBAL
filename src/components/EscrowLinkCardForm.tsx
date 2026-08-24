@@ -48,16 +48,21 @@ export function EscrowLinkCardForm({ currentUserId, onCardLinkedSuccess }: LinkC
     const formattedPayload = `${detectedBrand} •••• ${last4}`;
 
     try {
-      // Direct single-source update to user profile
+      // Direct single-source upsert to user profile to guarantee record creation
       const { error } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
+          id: currentUserId,
           has_payment_method: true,
           card_brand_last4: formattedPayload
-        })
-        .eq('id', currentUserId);
+        }, { onConflict: 'id' });
 
       if (error) throw error;
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`card_linked_${currentUserId}`, 'true');
+        window.dispatchEvent(new Event('cardLinked'));
+      }
 
       setFeedback({
         type: 'success',

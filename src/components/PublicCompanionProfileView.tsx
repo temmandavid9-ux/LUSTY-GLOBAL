@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Booking } from '../types';
 import { initiateFlutterwavePayment } from '../lib/flutterwave';
+import { chargeLinkedCard } from '../lib/chargeLinkedCard';
 
 interface PublicCompanionProfileViewProps {
   hostId: string;
@@ -147,35 +148,232 @@ export function PublicCompanionProfileView({
         return;
       }
 
+      // Get current user email
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const userEmail = currentUser?.email || "vipmember@gmail.com";
+
+      const processBookingSuccess = async (paymentGatewayRef: string) => {
+        const grossAmount = basePrice;
+
+        // 1. Instantly show success UI and update frontend booking state (non-blocking)
+        const tempBookingId = crypto.randomUUID();
+        const createdBooking: Booking = {
+          id: tempBookingId,
+          companionId: hostId,
+          date: new Date().toLocaleDateString(),
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          duration: bookingHours,
+          rate: profile.hourly_rate || 250,
+          location: profile.location || 'London, Mayfair',
+          status: 'paid_escrow',
+          notes: 'Secure platform-managed escrow custody hold',
+          senderId: currentUserId,
+          senderUsername: 'black',
+          senderAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+          receiverId: hostId,
+          receiverUsername: profile.username || profile.name || 'Elena_VIP',
+          receiverAvatar: profile.avatar_url || profile.avatar || 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150',
+          isVerified: !!(profile.is_verified || profile.tier_badge === 'VIP SELECT'),
+          escrowDeposit: Math.round((profile.hourly_rate || 250) * bookingHours * 0.3)
+        };
+
+        onAddBooking(createdBooking);
+
+        setBookingFeedback({
+          type: 'success',
+          message: `Payment Confirmed! $${totalCost.toFixed(2)} is held in Platform Escrow. The booking request has been sent to @${profile.username} (Status: paid_escrow).`
+        });
+
+        setIsBooking(false);
+
+        setTimeout(() => {
+          setShowBooking(false);
+          setBookingFeedback(null);
+        }, 5000);
+
+        // 2. Insert secure escrow booking with status 'paid_escrow' in background with a 5s safety net
+        const insertPromise = (async () => {
+          const { data: bookingData, error: bookingError } = await supabase
+            .from('bookings')
+            .insert([
+              {
+                id: tempBookingId,
+                companion_id: hostId,
+                client_id: currentUserId,
+                booking_date: new Date().toISOString(),
+                duration_hours: bookingHours,
+                hourly_rate_at_booking: profile.hourly_rate || 250,
+                gross_amount: grossAmount,
+                status: 'paid_escrow',
+                escrow_status: 'held'
+              }
+            ])
+            .select()
+            .maybeSingle();
+
+          if (bookingError) throw bookingError;
+          console.log("Successfully logged escrow booking to ledger database:", bookingData);
+
+          // Log unified audit history
+          try {
+            await supabase.from('transaction_history').insert([{
+              sender_id: currentUserId,
+              receiver_id: hostId,
+              transaction_type: 'booking',
+              status: 'paid_escrow',
+              gross_amount: grossAmount,
+              platform_fee: grossAmount * 0.15,
+              net_payout: grossAmount * 0.85,
+              tx_ref: paymentGatewayRef
+            }]);
+          } catch (histErr) {
+            console.warn("Unified transaction log error (ignored):", histErr);
+          }
+        })();
+
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Ledger write timed out')), 5000)
+        );
+
+        try {
+          await Promise.race([insertPromise, timeoutPromise]);
+        } catch (err: any) {
+          console.error("Ledger write timed out, but payment was captured:", err);
+          try {
+            await supabase.from('payment_errors').insert([{
+              tx_ref: paymentGatewayRef,
+              amount: grossAmount,
+              error_msg: `Booking (Profile) Ledger Error: ${err.message || 'Timeout'}`
+            }]);
+          } catch (logErr) {
+            console.warn("Failed to log to payment_errors table:", logErr);
+          }
+        }
+      };
+
+      // 🎯 Attempt 1-Click Debit with Linked Card Token First
+      try {
+        const tokenChargeResult = await chargeLinkedCard({
+          userId: currentUserId,
+          userEmail,
+          amount: totalCost,
+          currency: 'USD'
+        });
+
+        if (tokenChargeResult?.success) {
+          console.log("⚡ 1-Click Linked Card Debit Succeeded!", tokenChargeResult);
+          await processBookingSuccess(tokenChargeResult.data?.txRef || tokenChargeResult.data?.tx_ref || `TOK-${Date.now()}`);
+          return;
+        }
+      } catch (tokenErr: any) {
+        console.log("1-Click linked card debit unavailable or deferred:", tokenErr?.message);
+      }
+
+      // 🎯 Fallback: Launch Flutterwave Gateway Checkout Modal
       console.log(`Spinning up secure Flutterwave checkout for $${totalCost.toFixed(2)} to main platform wallet...`);
 
-      // 🎯 FLUTTERWAVE GATEWAY EXECUTION
+      const generatedTxRef = `TX-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const grossAmount = basePrice;
+
+      // STEP ONE: Pre-create pending booking record in Supabase IN ADVANCE
+      const bookingUuid = crypto.randomUUID();
+      const { data: preBooking } = await supabase
+        .from('bookings')
+        .insert([
+          {
+            id: bookingUuid,
+            companion_id: hostId,
+            client_id: currentUserId,
+            booking_date: new Date().toISOString(),
+            duration_hours: bookingHours,
+            hourly_rate_at_booking: profile.hourly_rate || 250,
+            gross_amount: grossAmount,
+            status: 'pending_transfer',
+            escrow_status: 'held',
+            payment_method: 'bank_transfer',
+            tx_ref: generatedTxRef
+          }
+        ])
+        .select()
+        .maybeSingle();
+
+      // Log to transaction_history
+      try {
+        await supabase.from('transaction_history').insert([{
+          sender_id: currentUserId,
+          receiver_id: hostId,
+          transaction_type: 'booking',
+          status: 'pending_transfer',
+          gross_amount: grossAmount,
+          platform_fee: grossAmount * 0.15,
+          net_payout: grossAmount * 0.85,
+          tx_ref: generatedTxRef
+        }]);
+      } catch (histErr) {
+        console.warn("Pre-booking audit log notice:", histErr);
+      }
+
+      // Show immediately in frontend UI state
+      const preBookingId = preBooking?.id || bookingUuid;
+      const pendingBooking: Booking = {
+        id: preBookingId,
+        companionId: hostId,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        duration: bookingHours,
+        rate: profile.hourly_rate || 250,
+        location: profile.location || 'London, Mayfair',
+        status: 'pending_transfer',
+        notes: 'Pending bank transfer settlement / Escrow processing',
+        senderId: currentUserId,
+        senderUsername: 'black',
+        senderAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        receiverId: hostId,
+        receiverUsername: profile.username || profile.name || 'Elena_VIP',
+        receiverAvatar: profile.avatar_url || profile.avatar || 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150',
+        isVerified: !!(profile.is_verified || profile.tier_badge === 'VIP SELECT'),
+        escrowDeposit: Math.round((profile.hourly_rate || 250) * bookingHours * 0.3)
+      };
+      onAddBooking(pendingBooking);
+
       await initiateFlutterwavePayment({
         amount: totalCost,
         currency: "USD",
-        email: "user@lustyglobal.vip",
-        name: "VIP Member",
+        email: userEmail,
+        name: currentUser?.user_metadata?.full_name || "VIP Member",
         description: `Booking escrow of ${bookingHours} hours with @${profile.username || 'VIP'}`,
+        txRef: generatedTxRef,
+        meta: {
+          client_id: currentUserId,
+          companion_id: hostId,
+          booking_amount_usd: grossAmount,
+        },
         callback: async (response: any) => {
           if (response.status === "successful" || response.status === "completed" || response.success) {
-            const paymentGatewayRef = response.transaction_id || response.tx_ref || `TRX-${Date.now()}`;
-            const grossAmount = basePrice;
+            const paymentGatewayRef = response.transaction_id || response.tx_ref || generatedTxRef;
+            
+            // Update booking status on successful payment
+            const targetTxRef = response.tx_ref || generatedTxRef;
+            const { error: bookingUpdateErr } = await supabase
+              .from('bookings')
+              .update({
+                status: 'funded',
+                escrow_status: 'held'
+              })
+              .eq('tx_ref', targetTxRef);
 
-            // 1. Instantly show success UI and update frontend booking state (non-blocking)
-            const tempBookingId = `booking_${hostId}_${Date.now()}`;
-            const createdBooking: Booking = {
-              id: tempBookingId,
-              companionId: hostId,
-              date: new Date().toLocaleDateString(),
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              duration: bookingHours,
-              rate: profile.hourly_rate || 250,
-              location: profile.location || 'London, Mayfair',
-              status: 'paid_escrow',
-              notes: 'Secure platform-managed escrow custody hold'
-            };
+            if (bookingUpdateErr) {
+              console.error('Failed to update booking status:', bookingUpdateErr.message);
+            }
 
-            onAddBooking(createdBooking);
+            try {
+              await supabase
+                .from('transaction_history')
+                .update({ status: 'paid_escrow', tx_ref: paymentGatewayRef })
+                .eq('tx_ref', generatedTxRef);
+            } catch (histErr) {
+              console.warn("Transaction history update notice:", histErr);
+            }
 
             setBookingFeedback({
               type: 'success',
@@ -188,65 +386,6 @@ export function PublicCompanionProfileView({
               setShowBooking(false);
               setBookingFeedback(null);
             }, 5000);
-
-            // 2. Insert secure escrow booking with status 'paid_escrow' in background with a 5s safety net
-            const insertPromise = (async () => {
-              const { data: bookingData, error: bookingError } = await supabase
-                .from('bookings')
-                .insert([
-                  {
-                    companion_id: hostId,
-                    client_id: currentUserId,
-                    duration_hours: bookingHours,
-                    hourly_rate_at_booking: profile.hourly_rate || 250,
-                    gross_amount: grossAmount,
-                    status: 'paid_escrow',
-                    escrow_status: 'held',
-                    location: profile.location || 'London, Mayfair'
-                  }
-                ])
-                .select()
-                .maybeSingle();
-
-              if (bookingError) throw bookingError;
-              console.log("Successfully logged escrow booking to ledger database:", bookingData);
-
-              // Log unified audit history
-              try {
-                await supabase.from('transaction_history').insert([{
-                  sender_id: currentUserId,
-                  receiver_id: hostId,
-                  transaction_type: 'booking',
-                  status: 'paid_escrow',
-                  gross_amount: grossAmount,
-                  platform_fee: grossAmount * 0.15,
-                  net_payout: grossAmount * 0.85,
-                  tx_ref: paymentGatewayRef
-                }]);
-              } catch (histErr) {
-                console.warn("Unified transaction log error (ignored):", histErr);
-              }
-            })();
-
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Ledger write timed out')), 5000)
-            );
-
-            try {
-              await Promise.race([insertPromise, timeoutPromise]);
-            } catch (err: any) {
-              console.error("Ledger write timed out, but payment was captured:", err);
-              // Log to administrative alert table for manual review
-              try {
-                await supabase.from('payment_errors').insert([{
-                  tx_ref: paymentGatewayRef,
-                  amount: grossAmount,
-                  error_msg: `Booking (Profile) Ledger Error: ${err.message || 'Timeout'}`
-                }]);
-              } catch (logErr) {
-                console.warn("Failed to log to payment_errors table (likely missing, logging to console):", logErr);
-              }
-            }
           } else {
             setBookingFeedback({
               type: 'error',
@@ -258,6 +397,14 @@ export function PublicCompanionProfileView({
         onClose: () => {
           setIsBooking(false);
           console.log("Flutterwave booking modal closed.");
+          setBookingFeedback({
+            type: 'success',
+            message: `Bank transfer booking submitted! Status: pending_transfer. You can view it in your Booking History.`
+          });
+          setTimeout(() => {
+            setShowBooking(false);
+            setBookingFeedback(null);
+          }, 4000);
         }
       });
 

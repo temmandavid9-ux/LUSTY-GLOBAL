@@ -3,7 +3,6 @@ import AgeGate from './components/AgeGate';
 import { LustyGlobalLogo } from './components/LustyGlobalLogo';
 import { WatermarkBackground } from './components/WatermarkBackground';
 import LoginForm from './components/LoginForm';
-import BiometricScanner from './components/BiometricScanner';
 import ShortsFeedSystem from './components/ShortsFeedSystem';
 import DirectoryView from './components/DirectoryView';
 import CompanionMap from './components/CompanionMap';
@@ -12,15 +11,26 @@ import { NotificationDropdown } from './components/NotificationDropdown';
 import DirectBookingModal from './components/DirectBookingModal';
 import SecurityPaymentGateway from './components/SecurityPaymentGateway';
 import AdminDashboardView from './components/AdminDashboardView';
+import VerifiedBadge from './components/VerifiedBadge';
 import VerificationPayoutDashboard, { VerificationBadge } from './components/VerificationPayoutDashboard';
 import { PublicCompanionProfileView } from './components/PublicCompanionProfileView';
+import { RealtimeSocialModal } from './components/RealtimeSocialModal';
+import VideoCallRoomModal from './components/VideoCallRoomModal';
+import IncomingCallModal from './components/IncomingCallModal';
+import OutgoingCallModal, { OutgoingCallData } from './components/OutgoingCallModal';
+import CallPrivacyModal from './components/CallPrivacyModal';
+import { VideoCallRoomConfig, startVideoCallSession, initiateVideoCallSignal } from './services/videoCallService';
 import { ChatUnreadBadge } from './components/ChatUnreadBadge';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
+import { useRealtimeWallet } from './hooks/useRealtimeWallet';
 import { UnifiedAlertListener } from './components/UnifiedAlertListener';
+import { InstallPWABanner } from './components/InstallPWABanner';
+import { PlatformRatingModal } from './components/PlatformRatingModal';
 import { COMPANIONS } from './data';
 import { Companion, Booking } from './types';
 import { supabase } from './lib/supabase';
 import { initiateFlutterwavePayment } from './lib/flutterwave';
+import { chargeSavedCardToken } from './lib/chargeLinkedCard';
 import { 
   Tv, 
   Users, 
@@ -29,7 +39,11 @@ import {
   ShieldCheck, 
   Compass,
   Award,
-  Camera
+  Camera,
+  Star,
+  Bell,
+  VolumeX,
+  Lock
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -40,24 +54,152 @@ export default function App() {
   // 2. Auth Session State
   const [userProfile, setUserProfile] = useState<{ id: string; username: string; avatar: string } | null>(null);
 
-  // 3. Biometric Security Gate State
-  const [isBiometricPassed, setIsBiometricPassed] = useState(false);
+  // Real-time Wallet Hook
+  const liveWalletBalance = useRealtimeWallet(userProfile?.id);
 
-  // 4. Current App Tab
+  // 3. Current App Tab
   const [activeTab, setActiveTab] = useState<'feed' | 'directory' | 'map' | 'chat' | 'admin' | 'verification'>('feed');
 
   // Shared States
   const [activeCompanionIdForChat, setActiveCompanionIdForChat] = useState<string | null>(null);
   const [viewingPublicProfileId, setViewingPublicProfileId] = useState<string | null>(null);
   const [publicProfileDefaultTab, setPublicProfileDefaultTab] = useState<'about' | 'media'>('about');
+  const [showSocialModal, setShowSocialModal] = useState<boolean>(false);
+  const [socialModalDefaultTab, setSocialModalDefaultTab] = useState<'fans' | 'following' | 'friends'>('fans');
+  const [showPlatformRatingModal, setShowPlatformRatingModal] = useState<boolean>(false);
+  const [alarmsArmed, setAlarmsArmed] = useState<boolean>(() => localStorage.getItem('lounge_alert_sounds_active') !== 'false');
   const [bookingCompanion, setBookingCompanion] = useState<Companion | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [escrowBalance, setEscrowBalance] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
+  const [activeVideoCallConfig, setActiveVideoCallConfig] = useState<VideoCallRoomConfig | null>(null);
+  const [activeOutgoingCall, setActiveOutgoingCall] = useState<OutgoingCallData | null>(null);
+  const [showCallPrivacyModal, setShowCallPrivacyModal] = useState<boolean>(false);
+
+  // 📹 Launch 1-on-1 Video Call Handler with Ringtone Signaling
+  const handleLaunchVideoCall = async (bookingData: any) => {
+    try {
+      const senderUser = userProfile?.username || bookingData?.senderUsername || 'black';
+      const senderAv = userProfile?.avatar || bookingData?.senderAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150';
+      const receiverUser = bookingData?.receiverUsername || 'Elena_VIP';
+      const receiverAv = bookingData?.receiverAvatar || 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150';
+      const durationMins = (bookingData?.duration || 2) * 60;
+      const loc = bookingData?.location || 'VIP Lounge Room 1 - London Mayfair';
+
+      if (bookingData?.directJoin) {
+        // Direct Join room
+        const config = await startVideoCallSession({
+          bookingId: bookingData?.id || `bk_${Date.now()}`,
+          durationMinutes: durationMins,
+          senderUsername: senderUser,
+          senderAvatar: senderAv,
+          receiverUsername: receiverUser,
+          receiverAvatar: receiverAv,
+          escrowDeposit: 0,
+          isFreeCall: true,
+          location: loc
+        });
+        setActiveVideoCallConfig(config);
+        toast.success("🎥 Connected to 1-on-1 Free Video Session!", { icon: '✨' });
+      } else {
+        // Trigger Realtime Incoming Call Ringtone Notification on partner device
+        const res = await initiateVideoCallSignal({
+          bookingId: bookingData?.id || `bk_${Date.now()}`,
+          senderUsername: senderUser,
+          senderAvatar: senderAv,
+          receiverUsername: receiverUser,
+          receiverAvatar: receiverAv,
+          escrowDeposit: 0,
+          isFreeCall: true,
+          durationMinutes: durationMins,
+          location: loc
+        });
+
+        if (res && res.success === false) {
+          toast.error(res.message || "Cannot initiate call.", { duration: 5000 });
+        } else {
+          toast("📞 Outgoing free call ringing... Target device notified!", { icon: '🔔' });
+        }
+      }
+    } catch (err) {
+      console.error("Failed to launch video call session:", err);
+      toast.error("Could not launch video room session.");
+    }
+  };
+
+  useEffect(() => {
+    const handleStartCallEvent = (e: any) => {
+      const b = e.detail?.booking;
+      handleLaunchVideoCall(b);
+    };
+
+    const handleOutgoingCallEvent = (e: any) => {
+      const data = e.detail;
+      if (data) {
+        const localUsername = userProfile?.username || 'black';
+        if (data.callerUsername && data.callerUsername.toLowerCase() === localUsername.toLowerCase()) {
+          setActiveOutgoingCall(data);
+        }
+      }
+    };
+
+    const handleOpenPrivacy = () => {
+      setShowCallPrivacyModal(true);
+    };
+
+    window.addEventListener('lounge-start-video-call', handleStartCallEvent);
+    window.addEventListener('lounge-outgoing-call-signal', handleOutgoingCallEvent);
+    window.addEventListener('open-call-privacy-modal', handleOpenPrivacy);
+    return () => {
+      window.removeEventListener('lounge-start-video-call', handleStartCallEvent);
+      window.removeEventListener('lounge-outgoing-call-signal', handleOutgoingCallEvent);
+      window.removeEventListener('open-call-privacy-modal', handleOpenPrivacy);
+    };
+  }, [userProfile]);
 
   // System Theme Switcher State
   const [currentTheme, setCurrentTheme] = useState<'default' | 'vintage-neon' | 'cyber-luxe' | 'deep-void'>('default');
+
+  // Connection Health Status
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      toast.success("Connection restored! Systems online.", {
+        id: "connection-status-toast",
+        style: {
+          background: '#09090b',
+          color: '#10b981',
+          border: '1px solid rgba(16, 185, 129, 0.2)',
+          fontSize: '11px',
+          fontFamily: 'monospace'
+        }
+      });
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      toast.error("Running in offline mode (limited functionality)", {
+        id: "connection-status-toast",
+        style: {
+          background: '#09090b',
+          color: '#f43f5e',
+          border: '1px solid rgba(244, 63, 94, 0.2)',
+          fontSize: '11px',
+          fontFamily: 'monospace'
+        }
+      });
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('app-theme') || 'default';
@@ -207,8 +349,6 @@ export default function App() {
             avatar: avatarUrl
           });
           setIsVerified(!!(profile as any).is_verified);
-          // Auto bypass biometric if restored successfully
-          setIsBiometricPassed(true);
         }
       }
     } catch (err) {
@@ -358,12 +498,16 @@ export default function App() {
     };
   }, [userProfile?.id, isVerified]);
 
-  // ⚡ Step 3: Broadcast Active Presence on User Mount
+  // ⚡ Step 3: Broadcast Active Presence on User Mount with Throttled Heartbeat & Network-Resiliency
   useEffect(() => {
     if (!userProfile?.id) return;
 
-    // 1. Immediately set presence to true upon component initialization mount
+    let isSyncing = false;
+    let lastLoggedErrorTime = 0;
+
     const updatePresence = async (status: boolean) => {
+      if (isSyncing) return;
+      isSyncing = true;
       try {
         await supabase
           .from('profiles')
@@ -372,14 +516,22 @@ export default function App() {
             last_seen: new Date().toISOString()
           })
           .eq('id', userProfile.id);
-      } catch (err) {
-        console.warn("Failed to update dynamic presence heartbeat:", err);
+      } catch (err: any) {
+        // Prevent logging console spam during temporary browser thread constraints (throttle log once per 60s)
+        const now = Date.now();
+        if (now - lastLoggedErrorTime > 60000) {
+          console.warn("Presence sync paused during thread constraint:", err?.message || err);
+          lastLoggedErrorTime = now;
+        }
+      } finally {
+        isSyncing = false;
       }
     };
 
+    // 1. Set presence to active upon initialization mount
     updatePresence(true);
 
-    // Set up active presence interval heartbeat every 2 minutes
+    // Set up throttled active presence interval heartbeat (updates every 2 minutes)
     const interval = setInterval(() => {
       updatePresence(true);
     }, 2 * 60 * 1000);
@@ -413,42 +565,179 @@ export default function App() {
   useEffect(() => {
     if (!userProfile?.id) {
       setBookings([]);
+      setEscrowBalance(0);
       return;
     }
 
     async function fetchBookings() {
+      const activeUserId = userProfile?.id;
+      if (!activeUserId) {
+        setBookings([]);
+        setEscrowBalance(0);
+        return;
+      }
+
       try {
-        const { data, error } = await supabase
-          .from('bookings')
-          .select('*')
-          .order('created_at', { ascending: false });
-        if (error) throw error;
-        if (data && data.length > 0) {
-          const mapped: Booking[] = data.map((b: any) => ({
-            id: b.id || `booking_${b.companion_id}_${b.created_at || Date.now()}`,
-            companionId: b.companion_id,
-            date: b.date || (b.created_at ? new Date(b.created_at).toLocaleDateString() : new Date().toLocaleDateString()),
-            time: b.time || (b.created_at ? new Date(b.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
-            duration: Number(b.duration_hours || b.duration || 1),
-            rate: Number(b.hourly_rate_at_booking || b.rate || 250),
-            location: b.location || 'London, Mayfair',
-            status: b.status === 'pending' ? 'escrowed' : b.status,
-            notes: b.notes || 'Supabase unified booking row'
-          }));
+        // Query BOTH 'booking_ledgers' and 'bookings' concurrently to guarantee complete coverage
+        const [ledgersRes, bookingsRes] = await Promise.all([
+          supabase
+            .from('booking_ledgers')
+            .select('*')
+            .or(`client_id.eq.${activeUserId},companion_id.eq.${activeUserId}`)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('bookings')
+            .select('*')
+            .or(`client_id.eq.${activeUserId},companion_id.eq.${activeUserId}`)
+            .order('created_at', { ascending: false })
+        ]);
+
+        const rawData = [
+          ...(ledgersRes.data || []),
+          ...(bookingsRes.data || [])
+        ];
+
+        // Deduplicate rows by id or tx_ref
+        const seen = new Set<string>();
+        const combinedData = rawData.filter(item => {
+          const key = item.id || item.tx_ref;
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+        console.log("Fetched Bookings Raw Data:", combinedData);
+
+        if (combinedData && combinedData.length > 0) {
+          // Resolve profile details for client_id and companion_id
+          const profileIds = Array.from(new Set([
+            ...combinedData.map((b: any) => b.client_id || b.clientId).filter(Boolean),
+            ...combinedData.map((b: any) => b.companion_id || b.companionId).filter(Boolean)
+          ]));
+
+          let profileMap: Record<string, { username: string; avatar: string; isVerified: boolean }> = {};
+          if (profileIds.length > 0) {
+            const { data: profs } = await supabase
+              .from('profiles')
+              .select('id, username, avatar_url, is_verified')
+              .in('id', profileIds);
+            if (profs) {
+              profs.forEach((p: any) => {
+                profileMap[p.id] = {
+                  username: p.username || 'VIP_User',
+                  avatar: p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+                  isVerified: !!p.is_verified
+                };
+              });
+            }
+          }
+
+          const mapped: Booking[] = combinedData.map((b: any) => {
+            const companionId = b.companion_id || b.companionId;
+            const clientId = b.client_id || b.clientId;
+
+            const comp = COMPANIONS.find(c => c.id === companionId);
+            const clientProf = profileMap[clientId];
+            const companionProf = profileMap[companionId];
+
+            const senderUsername = clientProf?.username || b.sender_username || b.senderUsername || (userProfile && clientId === userProfile.id ? userProfile.username : 'VIP_Client');
+            const senderAvatar = clientProf?.avatar || b.sender_avatar || b.senderAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150';
+
+            const receiverUsername = companionProf?.username || comp?.username || b.receiver_username || b.receiverUsername || 'Elena_VIP';
+            const receiverAvatar = companionProf?.avatar || comp?.avatar || b.receiver_avatar || b.receiverAvatar || 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150';
+            const isVerified = companionProf?.isVerified || comp?.isVIP || false;
+
+            const duration = Number(b.duration_hours || b.duration || 1);
+            const rate = Number(b.hourly_rate_at_booking || b.rate || 0);
+            const deposit = Number(b.gross_amount || b.escrow_deposit || b.amount || (rate * duration) || 0);
+            const rawStatus = (b.status || b.escrow_status || '').toString().toLowerCase();
+
+            return {
+              id: b.id || crypto.randomUUID(),
+              companionId: companionId,
+              date: b.date || b.booking_date || (b.created_at ? new Date(b.created_at).toLocaleDateString() : new Date().toLocaleDateString()),
+              time: b.time || (b.created_at ? new Date(b.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+              duration: duration,
+              rate: rate,
+              location: b.location || 'London, Mayfair',
+              status: rawStatus === 'pending' ? 'escrowed' : rawStatus,
+              notes: b.notes || 'Supabase unified booking row',
+              senderId: clientId,
+              senderUsername: senderUsername,
+              senderAvatar: senderAvatar,
+              receiverId: companionId,
+              receiverUsername: receiverUsername,
+              receiverAvatar: receiverAvatar,
+              isVerified: isVerified,
+              escrowDeposit: deposit
+            };
+          });
           setBookings(mapped);
           
-          // Calculate active escrow held
+          // Calculate active escrow held with case-insensitive status handling & robust deposit fallback
           const activeEscrows = mapped
-            .filter(b => b.status === 'escrowed' || b.status === 'pending')
-            .reduce((sum, b) => sum + (b.rate * b.duration), 0);
+            .filter(b => {
+              const statusLower = (b.status || '').toLowerCase();
+              return [
+                'escrowed', 
+                'paid_escrow', 
+                'funded', 
+                'pending', 
+                'pending_transfer', 
+                'active'
+              ].includes(statusLower);
+            })
+            .reduce((sum, b) => sum + Number(b.escrowDeposit || 0), 0);
           setEscrowBalance(activeEscrows);
+        } else {
+          setBookings([]);
+          setEscrowBalance(0);
         }
       } catch (err) {
         console.warn("Could not sync remote bookings, using local bookings database state:", err);
       }
     }
+
     fetchBookings();
+
+    // 📡 Subscribe to real-time booking changes (NEW_BOOKING_RECEIVED)
+    const activeUserId = userProfile?.id;
+    const bookingChannel = supabase
+      .channel(`realtime-bookings-channel-${activeUserId || 'global'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'booking_ledgers' },
+        (payload) => {
+          console.log('🔄 Real-time database change detected (booking_ledgers)! Syncing live directories...', payload);
+          fetchBookings();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        (payload) => {
+          console.log('🔄 Real-time database change detected (bookings)! Syncing live directories...', payload);
+          fetchBookings();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(bookingChannel);
+    };
   }, [userProfile?.id]);
+
+  // Handle custom event to open social modal
+  useEffect(() => {
+    const handleOpenSocial = (e: any) => {
+      if (e.detail?.tab) {
+        setSocialModalDefaultTab(e.detail.tab);
+      }
+      setShowSocialModal(true);
+    };
+    window.addEventListener('open-social-modal', handleOpenSocial);
+    return () => window.removeEventListener('open-social-modal', handleOpenSocial);
+  }, []);
 
   // Handle clicking outside the profile dropdown to dismiss it
   useEffect(() => {
@@ -617,12 +906,7 @@ export default function App() {
       console.warn(e);
     }
 
-    showToast(`Welcome, @${username}! Complete Biometrics check.`);
-  };
-
-  const handleBiometricSuccess = () => {
-    setIsBiometricPassed(true);
-    showToast("Identity verified! Welcome to the Live Lounge.");
+    showToast(`Welcome, @${username}!`);
   };
 
   const handleLogout = async () => {
@@ -633,7 +917,6 @@ export default function App() {
     }
     setUserProfile(null);
     setIsVerified(false);
-    setIsBiometricPassed(false);
     showToast("Session disconnected.");
   };
 
@@ -760,7 +1043,7 @@ export default function App() {
   };
 
   // Implement the Direct Tip Handler using a secure direct debit card pipeline
-  const handleSendDirectCardTip = async (recipientId: string, inputAmount: number, targetVideoId?: string) => {
+  const handleSendDirectCardTip = async (recipientId: string, inputAmount: number, _targetVideoId?: string) => {
     const currentUser = userProfile;
     if (!currentUser?.id) {
       alert("Please sign in to complete this payment.");
@@ -768,21 +1051,63 @@ export default function App() {
     }
 
     try {
-      // 1️⃣ STEP ONE: Guard Clause - Check if the sender has a linked card
-      const { data: profileStatus, error: profileError } = await supabase
-        .from('profiles')
-        .select('has_payment_method')
-        .eq('id', currentUser.id)
-        .single();
+      // 1️⃣ STEP ONE: Automatic background token charge if card is saved
+      const tokenChargeResult = await chargeSavedCardToken({
+        userId: currentUser.id,
+        amountUSD: inputAmount,
+        email: (currentUser as any).email || `${currentUser.username || 'vipmember'}@gmail.com`,
+        description: `Direct Creator Tip of ${inputAmount.toFixed(2)}`
+      });
 
-      // If there's an error retrieving the card, or if no card is explicitly marked as linked
-      if (profileError || !profileStatus || !profileStatus.has_payment_method) {
-        // 🛑 STOP right here. Do not forward the tip, do not write to the ledger.
-        alert("Payment Failed: Please link a valid debit card in your billing profile before sending tips.");
+      if (tokenChargeResult.success) {
+        const paymentGatewayRef = `TOK-${Date.now()}`;
+        const cardBrand = tokenChargeResult.cardBrand || 'Card';
+        const last4 = tokenChargeResult.last4 || '4242';
+
+        alert(`💳 Transaction Approved! ${inputAmount.toFixed(2)} debited automatically from linked ${cardBrand} •••• ${last4}. Direct tip forwarded successfully!`);
+
+        // Send chat message and log ledger in background
+        const textContent = `💸 Sent a ${inputAmount} Direct Card Tip!`;
+        try {
+          await supabase.from('chat_messages').insert([
+            {
+              sender_id: currentUser.id,
+              receiver_id: recipientId,
+              message_text: JSON.stringify({ text: textContent, type: 'tip', amount: inputAmount }),
+              created_at: new Date().toISOString()
+            }
+          ]);
+          await supabase.from('transaction_history').insert([{
+            sender_id: currentUser.id,
+            receiver_id: recipientId,
+            transaction_type: 'direct_tip',
+            status: 'completed',
+            gross_amount: inputAmount,
+            platform_fee: 0,
+            net_payout: inputAmount,
+            tx_ref: paymentGatewayRef
+          }]);
+        } catch (err) {
+          console.warn('Background ledger logging for direct tip notice:', err);
+        }
         return;
       }
 
-      // 2️⃣ STEP TWO: Fetch recipient's profile to build or resolve Flutterwave subaccount
+      // 2️⃣ STEP TWO: Guard Clause - Check if the sender has a linked card
+      const { data: profileStatus } = await supabase
+        .from('profiles')
+        .select('has_payment_method, card_linked')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+
+      const isLinked = profileStatus?.has_payment_method || profileStatus?.card_linked || (typeof window !== 'undefined' && localStorage.getItem(`card_linked_${currentUser.id}`) === 'true');
+
+      if (!isLinked) {
+        alert("Payment Failed: Please link a valid debit card in your Escrow Billing Portal before sending tips.");
+        return;
+      }
+
+      // 3️⃣ STEP THREE: Fetch recipient's profile to resolve Flutterwave subaccount
       const { data: recipientProfile } = await supabase
         .from('profiles')
         .select('settlement_bank_code, settlement_account_number, settlement_account_name')
@@ -801,7 +1126,7 @@ export default function App() {
               bank_code: recipientProfile.settlement_bank_code,
               account_number: recipientProfile.settlement_account_number,
               business_name: recipientProfile.settlement_account_name || "Lusty Creator Split",
-              business_email: "host-billing@lustyglobal.vip"
+              business_email: "hostbilling@gmail.com"
             })
           });
           if (subRes.ok) {
@@ -815,126 +1140,32 @@ export default function App() {
         }
       }
 
-      console.log(`Spinning up secure Flutterwave checkout for $${inputAmount.toFixed(2)} with Subaccount: ${hostSubaccountId || 'None'}...`);
+      console.log(`Spinning up secure Flutterwave checkout for ${inputAmount.toFixed(2)} with Subaccount: ${hostSubaccountId || 'None'}...`);
       
-      // 🎯 FLUTTERWAVE GATEWAY EXECUTION
+      // 🎯 FALLBACK FLUTTERWAVE MANUAL GATEWAY EXECUTION
       await initiateFlutterwavePayment({
         amount: inputAmount,
         currency: "USD",
-        email: currentUser.username ? `${currentUser.username}@lustyglobal.vip` : "user@lustyglobal.vip",
+        email: (currentUser as any).email || `${currentUser.username || 'vipmember'}@gmail.com`,
         name: currentUser.username || "VIP Member",
-        description: `Direct Creator Tip of $${inputAmount.toFixed(2)}`,
+        description: `Direct Creator Tip of ${inputAmount.toFixed(2)}`,
         hostSubaccountId: hostSubaccountId,
         callback: async (response: any) => {
           if (response.status === "successful" || response.status === "completed" || response.success) {
-            const paymentGatewayRef = response.transaction_id || response.tx_ref || `TRX-${Date.now()}`;
-            
-            // 1. Instantly show success UI and send chat logs (non-blocking)
-            alert(`💳 Transaction Approved! Your direct tip of $${inputAmount.toFixed(2)} has been forwarded successfully via Flutterwave.`);
+            alert(`💳 Transaction Approved! Your direct tip of ${inputAmount.toFixed(2)} has been forwarded successfully via Flutterwave.`);
 
-            // Send chat message in background
-            const textContent = `💸 Sent a $${inputAmount} Direct Card Tip!`;
-            (async () => {
-              try {
-                await supabase.from('chat_messages').insert([
-                  {
-                    sender_id: currentUser.id,
-                    receiver_id: recipientId,
-                    message_text: JSON.stringify({ text: textContent, type: 'tip' }),
-                    is_read: false
-                  }
-                ]);
-              } catch (msgErr: any) {
-                console.warn("Could not log chat message for tip:", msgErr);
-              }
-            })();
-
-            // Trigger delayed host thank you reply
-            setTimeout(async () => {
-              const thankYouReplies = [
-                `Wow, thank you so much for the gorgeous tip! 😍 You are a perfect gentleman. I am locking in extra priority for your booking!`,
-                `Oh! That is extremely sweet of you! ❤️ I really appreciate your gesture. When are we meeting?`,
-                `A secure tip transfer received! Thank you, darling. Let's arrange our private rendezvous session soon.`
-              ];
-              const replyText = thankYouReplies[Math.floor(Math.random() * thankYouReplies.length)];
-              try {
-                await supabase.from('chat_messages').insert([
-                  {
-                    sender_id: recipientId,
-                    receiver_id: currentUser.id,
-                    message_text: replyText,
-                    is_read: false
-                  }
-                ]);
-              } catch (replyErr) {
-                console.warn("Could not insert reply:", replyErr);
-              }
-            }, 1500);
-
-            // 2. Write directly to platform ledger & tips tables in background with a 5-second timeout safety net
-            const ledgerTask = (async () => {
-              const { error: ledgerError } = await supabase
-                .from('platform_ledger')
-                .insert([{
-                  sender_id: currentUser.id,
-                  recipient_id: recipientId,
-                  video_id: targetVideoId || null,
-                  amount: inputAmount,
-                  currency: 'USD',
-                  payment_gateway_ref: paymentGatewayRef,
-                  transaction_type: 'tip',
-                  settlement_status: 'pending' // Ready for automatic transfer payouts or pull withdrawals
-                }]);
-
-              if (ledgerError) throw ledgerError;
-
-              // Write to 'tips' table to automatically calculate the 15% platform split
-              const { error: tipsError } = await supabase
-                .from('tips')
-                .insert([{
-                  sender_id: currentUser.id,
-                  receiver_id: recipientId,
-                  gross_amount: inputAmount
-                }]);
-              if (tipsError) {
-                console.warn("Failed to log to tips table in background:", tipsError);
-              }
-
-              // Log unified audit history
-              try {
-                await supabase.from('transaction_history').insert([{
-                  sender_id: currentUser.id,
-                  receiver_id: recipientId,
-                  transaction_type: 'tip',
-                  status: 'completed',
-                  gross_amount: inputAmount,
-                  platform_fee: inputAmount * 0.15,
-                  net_payout: inputAmount * 0.85,
-                  tx_ref: paymentGatewayRef
-                }]);
-              } catch (histErr) {
-                console.warn("Unified transaction log error for tip (ignored):", histErr);
-              }
-            })();
-
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Tip ledger write timed out')), 5000)
-            );
-
+            const textContent = `💸 Sent a ${inputAmount} Direct Card Tip!`;
             try {
-              await Promise.race([ledgerTask, timeoutPromise]);
-            } catch (ledgerErr: any) {
-              console.error("Ledger logging error/timeout (non-blocking for user):", ledgerErr.message);
-              // Log to administrative alert table for manual review (robustly caught)
-              try {
-                await supabase.from('payment_errors').insert([{
-                  tx_ref: paymentGatewayRef,
-                  amount: inputAmount,
-                  error_msg: `Direct Tip Ledger Error: ${ledgerErr.message || 'Timeout'}`
-                }]);
-              } catch (logErr) {
-                console.warn("Failed to log to payment_errors table (likely missing):", logErr);
-              }
+              await supabase.from('chat_messages').insert([
+                {
+                  sender_id: currentUser.id,
+                  receiver_id: recipientId,
+                  message_text: JSON.stringify({ text: textContent, type: 'tip', amount: inputAmount }),
+                  created_at: new Date().toISOString()
+                }
+              ]);
+            } catch (err) {
+              console.warn("Failed to log tip chat message:", err);
             }
           } else {
             alert("Payment verification failed or was declined.");
@@ -945,9 +1176,9 @@ export default function App() {
         }
       });
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Critical payment tracking pipeline fault:", err);
-      alert("Payment captured but ledger logging timed out. Contact support.");
+      alert(`Payment notice: ${err.message || 'System busy'}`);
     }
   };
 
@@ -963,11 +1194,34 @@ export default function App() {
     if (pendingPayment.type === 'booking' && pendingPayment.bookingDetails) {
       const confirmedBooking: Booking = {
         ...pendingPayment.bookingDetails,
-        status: 'escrowed'
+        status: 'escrowed',
+        senderId: userProfile?.id,
+        senderUsername: userProfile?.username || 'black',
+        senderAvatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        receiverId: pendingPayment.recipientId,
+        receiverUsername: pendingPayment.recipientUsername,
+        escrowDeposit: pendingPayment.amount
       };
       setBookings(prev => [confirmedBooking, ...prev]);
       setEscrowBalance(prev => prev + pendingPayment.amount);
       showToast(`Rendezvous reserved! $${pendingPayment.amount} escrow contract created.`);
+
+      // Write booking record to Supabase
+      try {
+        await supabase.from('bookings').insert([{
+          client_id: userProfile?.id,
+          companion_id: pendingPayment.recipientId,
+          date: confirmedBooking.date,
+          time: confirmedBooking.time,
+          duration_hours: confirmedBooking.duration,
+          hourly_rate_at_booking: confirmedBooking.rate,
+          status: 'escrowed',
+          escrow_status: 'held',
+          gross_amount: pendingPayment.amount
+        }]);
+      } catch (err) {
+        console.warn("Failed to write booking record to Supabase:", err);
+      }
     } else if (pendingPayment.type === 'tip') {
       showToast(`Sent a secure tip of $${pendingPayment.amount} to @${pendingPayment.recipientUsername}!`);
       
@@ -981,34 +1235,10 @@ export default function App() {
           {
             sender_id: userProfile?.id || '',
             receiver_id: pendingPayment.recipientId,
-            message_text: JSON.stringify({ text: textContent, type: 'tip' }),
+            message_text: JSON.stringify({ text: textContent, type: 'tip', amount: pendingPayment.amount }),
             is_read: false
           }
         ]);
-
-        // Trigger delayed host thank you reply
-        const recipientId = pendingPayment.recipientId;
-        setTimeout(async () => {
-          const thankYouReplies = [
-            `Wow, thank you so much for the gorgeous tip! 😍 You are a perfect gentleman. I am locking in extra priority for your booking!`,
-            `Oh! That is extremely sweet of you! ❤️ I really appreciate your gesture. When are we meeting?`,
-            `A secure tip transfer received! Thank you, darling. Let's arrange our private rendezvous session soon.`
-          ];
-          const replyText = thankYouReplies[Math.floor(Math.random() * thankYouReplies.length)];
-          try {
-            await supabase.from('chat_messages').insert([
-              {
-                sender_id: recipientId,
-                receiver_id: userProfile?.id || '',
-                message_text: replyText,
-                is_read: false
-              }
-            ]);
-          } catch (err) {
-            console.warn("Failed to write auto-reply to Supabase:", err);
-          }
-        }, 2000);
-
       } catch (err) {
         console.warn("Failed to complete tip record inserts in Supabase:", err);
       }
@@ -1121,6 +1351,7 @@ export default function App() {
           <CompanionMap 
             onStartChat={handleStartChat} 
             onOpenBooking={handleOpenBooking} 
+            currentUserId={userProfile?.id}
           />
         );
       case 'chat':
@@ -1141,6 +1372,7 @@ export default function App() {
             escrowBalance={escrowBalance} 
             currentUserProfile={profile}
             onRefreshProfile={fetchFullProfile}
+            onStartVideoCall={handleLaunchVideoCall}
           />
         );
       case 'verification':
@@ -1208,7 +1440,7 @@ export default function App() {
             <div>
               <h4 className="text-sm font-black text-zinc-100 flex items-center gap-1.5">
                 @{userProfile.username}
-                {isVerified && <span className="text-pink-400 text-xs">✔</span>}
+                {isVerified && <VerifiedBadge variant="blue" size={16} className="inline-block align-middle ml-0.5" />}
               </h4>
               <span className="text-[10px] bg-pink-500/10 text-pink-400 border border-pink-500/20 px-2 py-0.5 rounded font-mono uppercase font-bold tracking-wider">
                 {isVerified ? "VIP PRESTIGE HOST" : "STANDARD TIER"}
@@ -1314,11 +1546,11 @@ export default function App() {
 
         {/* 3. Integrated Financial Wallet Section */}
         <div className="space-y-3 my-4">
-          <div className="bg-zinc-900/40 border border-zinc-900 rounded-2xl p-3 flex justify-between items-center">
+          <div className="user-vault-box bg-zinc-900/40 border border-zinc-900 rounded-2xl p-3 flex justify-between items-center">
             <div>
-              <span className="text-[9px] text-zinc-500 block uppercase font-mono">User Vault Balance (Escrow)</span>
-              <div className="text-sm font-bold font-mono text-emerald-400">
-                ${escrowBalance.toLocaleString()} USD
+              <span className="text-xs text-gray-400 block font-mono uppercase">USER VAULT BALANCE (ESCROW)</span>
+              <div className="text-lg font-bold text-emerald-400 font-mono">
+                ${Number(liveWalletBalance).toFixed(2)} USD
               </div>
             </div>
             <span className="text-[10px] bg-pink-500/10 text-pink-400 border border-pink-500/20 px-2 py-0.5 rounded font-bold font-mono uppercase tracking-wider">🔒 Escrow Active</span>
@@ -1412,7 +1644,106 @@ export default function App() {
           </div>
         </div>
 
-        {/* 4. Action Suite / Logout */}
+        {/* 4. Social Network Connections Suite */}
+        <div className="pt-3 border-t border-zinc-900 mt-3 space-y-2">
+          <button
+            type="button"
+            onClick={() => {
+              setShowProfileDetails(false);
+              setShowCallPrivacyModal(true);
+            }}
+            className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-500/60 p-3 rounded-2xl text-xs font-bold text-emerald-300 hover:text-emerald-200 transition flex items-center justify-between cursor-pointer group"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/40 text-emerald-400">
+                <Lock className="w-3.5 h-3.5" />
+              </div>
+              <div className="text-left">
+                <span className="block font-bold text-zinc-100 group-hover:text-emerald-300">Call Privacy & DND</span>
+                <span className="block text-[9px] text-zinc-400 font-mono">DND Mode • Call Filters • Rate Limit</span>
+              </div>
+            </div>
+            <span className="text-[10px] bg-emerald-500 text-zinc-950 px-2.5 py-1 rounded-full font-mono font-black uppercase tracking-wider group-hover:scale-105 transition">Config →</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowProfileDetails(false);
+              setSocialModalDefaultTab('fans');
+              setShowSocialModal(true);
+            }}
+            className="w-full bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/30 hover:border-pink-500/60 p-3 rounded-2xl text-xs font-bold text-pink-300 hover:text-pink-200 transition flex items-center justify-between cursor-pointer group"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full bg-pink-500/20 flex items-center justify-center border border-pink-500/40 text-pink-400">
+                <Users className="w-3.5 h-3.5" />
+              </div>
+              <div className="text-left">
+                <span className="block font-bold text-zinc-100 group-hover:text-pink-300">Social Connections</span>
+                <span className="block text-[9px] text-zinc-400 font-mono">Fans • Following • Friends</span>
+              </div>
+            </div>
+            <span className="text-[10px] bg-pink-500 text-zinc-950 px-2.5 py-1 rounded-full font-mono font-black uppercase tracking-wider group-hover:scale-105 transition">View →</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowProfileDetails(false);
+              setShowPlatformRatingModal(true);
+            }}
+            className="w-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 p-3 rounded-2xl text-xs font-bold text-amber-300 hover:text-amber-200 transition flex items-center justify-between cursor-pointer group"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center border border-amber-500/40 text-amber-400">
+                <Star className="w-3.5 h-3.5 fill-amber-400" />
+              </div>
+              <div className="text-left">
+                <span className="block font-bold text-zinc-100 group-hover:text-amber-300">Rate Platform</span>
+                <span className="block text-[9px] text-zinc-400 font-mono">Feedback & Reviews</span>
+              </div>
+            </div>
+            <span className="text-[10px] bg-amber-400 text-zinc-950 px-2.5 py-1 rounded-full font-mono font-black uppercase tracking-wider group-hover:scale-105 transition">Rate ⭐</span>
+          </button>
+
+          {/* Audio Booking Sirens & Sound Alarms Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextState = !alarmsArmed;
+              setAlarmsArmed(nextState);
+              localStorage.setItem('lounge_alert_sounds_active', nextState ? 'true' : 'false');
+              window.dispatchEvent(new CustomEvent('lounge-toggle-sound-alert', { detail: { enabled: nextState } }));
+            }}
+            className={`w-full p-3 rounded-2xl text-xs font-bold transition flex items-center justify-between cursor-pointer group border ${
+              alarmsArmed
+                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center border ${
+                alarmsArmed ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+              }`}>
+                {alarmsArmed ? <Bell className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              </div>
+              <div className="text-left">
+                <span className="block font-bold text-zinc-100 group-hover:text-emerald-300">
+                  {alarmsArmed ? 'Alarms Armed' : 'Alarms Inert (Muted)'}
+                </span>
+                <span className="block text-[9px] text-zinc-400 font-mono">Audio Booking & Chat Sirens</span>
+              </div>
+            </div>
+            <span className={`text-[10px] px-2.5 py-1 rounded-full font-mono font-black uppercase tracking-wider group-hover:scale-105 transition ${
+              alarmsArmed ? 'bg-emerald-500 text-zinc-950' : 'bg-rose-500 text-white'
+            }`}>
+              {alarmsArmed ? 'ARMED 🔔' : 'MUTED 🔇'}
+            </span>
+          </button>
+        </div>
+
+        {/* 5. Action Suite / Logout */}
         <div className="pt-2 border-t border-zinc-900 mt-2">
           <button
             type="button"
@@ -1441,22 +1772,9 @@ export default function App() {
   if (!userProfile) {
     return (
       <div className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        <WatermarkBackground />
         <div className="absolute top-1/4 left-1/4 w-80 h-80 bg-pink-500/5 rounded-full blur-3xl pointer-events-none" />
         <LoginForm onLoginSuccess={handleLoginSuccess} />
-      </div>
-    );
-  }
-
-  // Step 3: Biometric Credential Check
-  if (!isBiometricPassed) {
-    return (
-      <div className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-80 h-80 bg-pink-500/5 rounded-full blur-3xl pointer-events-none" />
-        <BiometricScanner 
-          onSuccess={handleBiometricSuccess} 
-          title="Verifying VIP Member Key"
-          subtitle={`Securing workspace credentials for guest @${userProfile.username}`}
-        />
       </div>
     );
   }
@@ -1479,20 +1797,34 @@ export default function App() {
       <Toaster position="top-center" reverseOrder={false} />
 
       {/* Main Container */}
-      <div className="w-full max-w-5xl flex flex-col h-full overflow-hidden md:py-6 px-0 md:px-4">
+      <div className="w-full max-w-7xl flex flex-col h-full overflow-hidden md:py-6 px-0 md:px-4">
         
         {/* ── 📌 GLOBAL STICKY HEADER (Standardized) ── */}
         {activeTab !== 'feed' && (
-          <header className="md:hidden sticky top-0 z-50 bg-[#090b0e]/95 backdrop-blur-md px-4 py-4 flex items-center justify-between border-b border-zinc-900/50 shrink-0">
+          <header className="md:hidden sticky top-0 z-50 bg-[#090b0e]/95 backdrop-blur-md px-4 py-3 flex items-center justify-between border-b border-zinc-900/50 shrink-0">
             {/* ── 🔥 OFFICIAL BRAND LOGO ALIGNMENT MATRIX ── */}
-            <LustyGlobalLogo />
+            <div className="flex items-center gap-2 shrink-0">
+              <LustyGlobalLogo size="sm" layout="horizontal" />
+              {/* Mobile Connection Health Indicator */}
+              <div 
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-mono font-black border transition-all duration-300 select-none shrink-0 ${
+                  isOnline 
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                    : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                }`}
+                title={isOnline ? 'System Fully Synchronized' : 'Running in Limited Functionality Offline Mode'}
+              >
+                <span className={`w-1 h-1 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-rose-400'} inline-block`} />
+                <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+              </div>
+            </div>
 
             {/* Connected Profile Node Menu */}
-            <div className="relative flex items-center gap-3 z-50 pointer-events-auto" ref={mobileProfileDropdownRef}>
+            <div className="relative flex items-center gap-2 z-50 pointer-events-auto shrink-0" ref={mobileProfileDropdownRef}>
               <button 
                 type="button"
                 onClick={() => setShowProfileDetails(!showProfileDetails)}
-                className="flex items-center gap-2 bg-zinc-900/60 pl-2 pr-3 py-1.5 rounded-full border border-zinc-800/40 cursor-pointer active:scale-95 transition relative z-50"
+                className="flex items-center gap-1.5 bg-zinc-900/60 pl-1.5 pr-2.5 py-1 rounded-full border border-zinc-800/40 cursor-pointer active:scale-95 transition relative z-50 shrink-0"
               >
                 <div className="w-5 h-5 rounded-full bg-zinc-700 overflow-hidden shrink-0 ring-1 ring-zinc-800">
                   <img 
@@ -1501,10 +1833,10 @@ export default function App() {
                     className="w-full h-full object-cover" 
                   />
                 </div>
-                <span className="text-[11px] font-bold text-zinc-300 font-sans">
+                <span className="text-[11px] font-bold text-zinc-300 font-sans max-w-[80px] truncate">
                   @{userProfile.username || 'companion'}
                 </span>
-                <span className="text-[9px] text-zinc-500 font-sans select-none">{showProfileDetails ? '▲' : '▼'}</span>
+                <span className="text-[9px] text-zinc-500 font-sans select-none shrink-0">{showProfileDetails ? '▲' : '▼'}</span>
               </button>
 
               {renderBreakoutDropdown()}
@@ -1513,36 +1845,51 @@ export default function App() {
         )}
 
         {/* Top Header Controls Bar */}
-        <header className="hidden md:flex items-center justify-between bg-zinc-900/40 border border-zinc-850 p-4 rounded-3xl mb-4 relative z-10">
-          <LustyGlobalLogo />
+        <header className="hidden md:flex items-center justify-between gap-2 bg-zinc-950/80 border border-zinc-800 px-3.5 py-2.5 rounded-3xl mb-4 relative z-10 w-full max-w-7xl mx-auto backdrop-blur-md shrink-0">
+          {/* Left: Logo & Status */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <LustyGlobalLogo size="sm" layout="horizontal" />
+            {/* Connection Health Indicator */}
+            <div 
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-black border transition-all duration-300 select-none shrink-0 ${
+                isOnline 
+                  ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/30' 
+                  : 'bg-rose-950/60 text-rose-400 border-rose-500/30'
+              }`}
+              title={isOnline ? 'System Fully Synchronized' : 'Running in Limited Functionality Offline Mode'}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'} inline-block`} />
+              <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+            </div>
+          </div>
 
-          {/* Nav tabs desktop style */}
-          <div className="flex items-center gap-1 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-850">
+          {/* Center Nav Items */}
+          <nav className="flex items-center gap-1 bg-zinc-900/60 border border-purple-500/20 rounded-full px-2.5 py-1.5 overflow-x-auto no-scrollbar max-w-full shrink min-w-0 mx-1">
             <button
               onClick={() => setActiveTab('feed')}
-              className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                activeTab === 'feed' ? 'bg-pink-500 text-white' : 'text-zinc-400 hover:text-zinc-200'
+              className={`px-3 py-1.5 text-xs font-bold rounded-full transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                activeTab === 'feed' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/20' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <Tv className="w-4 h-4" />
+              <Tv className="w-3.5 h-3.5" />
               <span>Lounge Shorts</span>
             </button>
             <button
               onClick={() => setActiveTab('directory')}
-              className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                activeTab === 'directory' ? 'bg-pink-500 text-white' : 'text-zinc-400 hover:text-zinc-200'
+              className={`px-3 py-1.5 text-xs font-bold rounded-full transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                activeTab === 'directory' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/20' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <Users className="w-4 h-4" />
+              <Users className="w-3.5 h-3.5" />
               <span>Companions</span>
             </button>
             <button
               onClick={() => setActiveTab('map')}
-              className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                activeTab === 'map' ? 'bg-pink-500 text-white' : 'text-zinc-400 hover:text-zinc-200'
+              className={`px-3 py-1.5 text-xs font-bold rounded-full transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                activeTab === 'map' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/20' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <MapPin className="w-4 h-4" />
+              <MapPin className="w-3.5 h-3.5" />
               <span>Live Radar</span>
             </button>
             <button
@@ -1550,55 +1897,59 @@ export default function App() {
                 setActiveTab('chat');
                 window.dispatchEvent(new CustomEvent('chat-read-all'));
               }}
-              className={`relative px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                activeTab === 'chat' ? 'bg-pink-500 text-white' : 'text-zinc-400 hover:text-zinc-200'
+              className={`relative px-3 py-1.5 text-xs font-bold rounded-full transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                activeTab === 'chat' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/20' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <MessageSquare className="w-4 h-4" />
+              <MessageSquare className="w-3.5 h-3.5" />
               <span>Chats</span>
               <ChatUnreadBadge currentUserId={userProfile?.id || ''} />
             </button>
             <button
               onClick={() => setActiveTab('verification')}
-              className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                activeTab === 'verification' ? 'bg-pink-500 text-white' : 'text-zinc-400 hover:text-zinc-200'
+              className={`px-3 py-1.5 text-xs font-bold rounded-full transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                activeTab === 'verification' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/20' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <Award className="w-4 h-4 text-sky-400" />
+              <Award className="w-3.5 h-3.5 text-sky-400" />
               <span>Host Portal</span>
             </button>
             <button
               onClick={() => setActiveTab('admin')}
-              className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                activeTab === 'admin' ? 'bg-pink-500 text-white' : 'text-zinc-400 hover:text-zinc-200'
+              className={`px-3 py-1.5 text-xs font-bold rounded-full transition flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                activeTab === 'admin' ? 'bg-pink-500 text-white shadow-md shadow-pink-500/20' : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <ShieldCheck className="w-4 h-4" />
+              <ShieldCheck className="w-3.5 h-3.5 text-pink-400" />
               <span>Escrow Vault</span>
             </button>
-          </div>
+          </nav>
 
-          {/* User profile controls right with Breakout Dropdown */}
-          <div className="relative flex items-center gap-3 z-50 pointer-events-auto" ref={profileDropdownRef}>
-            <NotificationDropdown currentUserId={userProfile.id} />
+          {/* Right Tools & Profile */}
+          <div className="relative flex items-center gap-2 shrink-0" ref={profileDropdownRef}>
+            <div className="shrink-0">
+              <NotificationDropdown currentUserId={userProfile.id} />
+            </div>
             <button
               type="button"
               onClick={() => {
                 console.log("Header profile chip clicked! Toggling state to:", !showProfileDetails);
                 setShowProfileDetails(!showProfileDetails);
               }}
-              className="flex items-center gap-2.5 bg-zinc-900/80 border border-zinc-800 hover:border-pink-500/40 active:scale-98 px-3.5 py-2 rounded-full transition cursor-pointer select-none z-50 relative"
+              className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 hover:border-pink-500/40 active:scale-98 px-2.5 py-1 rounded-full transition cursor-pointer select-none z-50 relative shrink-0"
             >
-              <img 
-                src={userProfile.avatar} 
-                alt="" 
-                className="w-7 h-7 rounded-full object-cover border border-pink-500 bg-zinc-800" 
-              />
-              <div className="flex items-center gap-1.5 text-left">
-                <span className="text-xs font-bold text-zinc-100">@{userProfile.username}</span>
-                {isVerified && <VerificationBadge size={13} />}
+              <div className="w-7 h-7 rounded-full overflow-hidden border border-pink-500/80 shrink-0">
+                <img 
+                  src={userProfile.avatar} 
+                  alt="" 
+                  className="w-full h-full object-cover" 
+                />
               </div>
-              <span className="text-zinc-500 text-[10px] ml-0.5">{showProfileDetails ? '▲' : '▼'}</span>
+              <div className="flex items-center gap-1 text-left">
+                <span className="text-xs font-bold text-zinc-100 max-w-[85px] truncate">@{userProfile.username}</span>
+                {isVerified && <VerificationBadge size={12} />}
+              </div>
+              <span className="text-zinc-500 text-[9px] shrink-0">{showProfileDetails ? '▲' : '▼'}</span>
             </button>
 
             {renderBreakoutDropdown()}
@@ -1606,7 +1957,7 @@ export default function App() {
         </header>
 
         {/* Viewport Core Frame */}
-        <main className="flex-1 overflow-hidden bg-zinc-950 md:rounded-3xl border border-zinc-900 flex justify-center items-center w-full md:h-[75vh]">
+        <main className="flex-1 overflow-y-auto bg-zinc-950 md:rounded-3xl border border-zinc-900 flex flex-col justify-start items-center w-full min-h-0 md:min-h-[75vh]">
           {renderActiveView()}
         </main>
 
@@ -1679,6 +2030,19 @@ export default function App() {
       </div>
 
       {/* 6. Active Overlay Forms */}
+      {showSocialModal && userProfile?.id && (
+        <RealtimeSocialModal
+          currentUserId={userProfile.id}
+          isOpen={showSocialModal}
+          onClose={() => setShowSocialModal(false)}
+          defaultTab={socialModalDefaultTab}
+          onOpenChat={(companionId) => {
+            setActiveCompanionIdForChat(companionId);
+            setActiveTab('chat');
+          }}
+        />
+      )}
+
       {bookingCompanion && (
         <DirectBookingModal 
           companion={bookingCompanion} 
@@ -1708,9 +2072,49 @@ export default function App() {
         />
       )}
 
+      {activeVideoCallConfig && (
+        <VideoCallRoomModal
+          roomConfig={activeVideoCallConfig}
+          currentUserUsername={userProfile?.username || 'black'}
+          onClose={() => setActiveVideoCallConfig(null)}
+          onCallCompleted={() => {
+            // Refresh local bookings list or state
+          }}
+        />
+      )}
+
+      <IncomingCallModal
+        currentUsername={userProfile?.username || 'black'}
+        onAcceptCall={(config) => setActiveVideoCallConfig(config)}
+      />
+
+      <OutgoingCallModal
+        outgoingCall={activeOutgoingCall}
+        currentUsername={userProfile?.username || 'black'}
+        onCancelCall={() => setActiveOutgoingCall(null)}
+        onCallAccepted={(config) => {
+          setActiveOutgoingCall(null);
+          setActiveVideoCallConfig(config);
+        }}
+      />
+
+      <CallPrivacyModal
+        username={userProfile?.username || 'black'}
+        isOpen={showCallPrivacyModal}
+        onClose={() => setShowCallPrivacyModal(false)}
+      />
+
       {userProfile?.id && (
         <UnifiedAlertListener currentUserId={userProfile.id} />
       )}
+
+      <PlatformRatingModal
+        isOpen={showPlatformRatingModal}
+        onClose={() => setShowPlatformRatingModal(false)}
+        username={userProfile?.username}
+      />
+
+      <InstallPWABanner />
 
     </div>
   );

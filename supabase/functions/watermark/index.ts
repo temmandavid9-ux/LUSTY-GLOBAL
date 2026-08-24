@@ -26,10 +26,10 @@ serve(async (req) => {
       });
     }
 
-    // 1. Define paths for processing
-    const inputPath = "input.mp4";
-    const logoPath = "logo.png";
-    const outputPath = "output.mp4";
+    // 1. Define paths for processing inside the writable /tmp directory
+    const inputPath = `/tmp/input_${Date.now()}.mp4`;
+    const logoPath = `/tmp/logo_${Date.now()}.png`;
+    const outputPath = `/tmp/output_${Date.now()}.mp4`;
 
     // 2. Fetch the original video file and write it to the temporary local disk
     const videoResponse = await fetch(videoUrl);

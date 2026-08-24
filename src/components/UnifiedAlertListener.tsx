@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { ShieldAlert, Volume2, VolumeX } from 'lucide-react';
+import { ShieldAlert, VolumeX } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface UnifiedAlertListenerProps {
@@ -104,26 +104,101 @@ export function UnifiedAlertListener({ currentUserId }: UnifiedAlertListenerProp
 
   const bookingAudio = useRef<HTMLAudioElement | null>(null);
   const messageAudio = useRef<HTMLAudioElement | null>(null);
+  const bookingAudioHasError = useRef(false);
+  const messageAudioHasError = useRef(false);
   const synthAlarm = useRef<SynthAlarmEngine>(new SynthAlarmEngine());
   const synthChime = useRef<SynthChimeEngine>(new SynthChimeEngine());
 
-  // Restore previous audio preferences on load
+  // Restore previous audio preferences on load & listen for external toggles from profile dropdown
   useEffect(() => {
     const saved = localStorage.getItem('lounge_alert_sounds_active');
-    if (saved === 'true') {
+    if (saved !== 'false') {
       setSoundEnabled(true);
     }
+
+    const handleExternalToggle = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const targetState = customEvent.detail?.enabled;
+      if (typeof targetState === 'boolean') {
+        setSoundEnabled(targetState);
+        if (targetState) {
+          localStorage.setItem('lounge_alert_sounds_active', 'true');
+          toast.success("🔊 High-Volume Audio Alert Channels Armed & Active!", {
+            icon: '🔔',
+            style: {
+              background: '#0c0a0f',
+              color: '#ffffff',
+              border: '1px solid rgba(236, 72, 153, 0.3)',
+              fontFamily: 'monospace',
+              fontSize: '11px'
+            }
+          });
+          synthChime.current.play();
+        } else {
+          localStorage.setItem('lounge_alert_sounds_active', 'false');
+          stopAllSounds();
+          toast.error("🔇 Audio alerts muted. Alarms will be visual only.", {
+            style: {
+              background: '#0c0a0f',
+              color: '#ffffff',
+              border: '1px solid rgba(236, 72, 153, 0.3)',
+              fontFamily: 'monospace',
+              fontSize: '11px'
+            }
+          });
+        }
+      } else {
+        handleToggleSound();
+      }
+    };
+
+    window.addEventListener('lounge-toggle-sound-alert', handleExternalToggle);
+    return () => {
+      window.removeEventListener('lounge-toggle-sound-alert', handleExternalToggle);
+    };
+  }, []);
+
+  // 🔓 Unlock browser audio autoplay restrictions on first user interaction
+  useEffect(() => {
+    const unlockAudio = () => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          if (ctx.state === 'suspended') {
+            ctx.resume();
+          }
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.01);
+        }
+      } catch (e) {}
+
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+
+    window.addEventListener('click', unlockAudio);
+    window.addEventListener('touchstart', unlockAudio);
+    window.addEventListener('keydown', unlockAudio);
+
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
   }, []);
 
   useEffect(() => {
     if (!currentUserId || currentUserId === 'anon_user' || currentUserId.trim() === '') return;
 
-    // 1. Initialize HTML5 Audio Objects
-    bookingAudio.current = new Audio('https://vtmaffcyvhnnmfibfswm.supabase.co/storage/v1/object/public/assets/booking_alarm.mp3');
-    bookingAudio.current.loop = true;
-
-    messageAudio.current = new Audio('https://vtmaffcyvhnnmfibfswm.supabase.co/storage/v1/object/public/assets/message_chime.mp3');
-    messageAudio.current.loop = false;
+    bookingAudioHasError.current = false;
+    messageAudioHasError.current = false;
 
     // 2. Subscribe to Supabase Realtime alerts channel
     const alertsChannel = supabase
@@ -176,15 +251,23 @@ export function UnifiedAlertListener({ currentUserId }: UnifiedAlertListenerProp
 
   const triggerBookingAlarm = () => {
     if (!soundEnabled) {
-      console.warn("Autoplay blocked/sound disabled. Showing interactive banner instead.");
       return;
     }
 
-    if (bookingAudio.current) {
+    if (!bookingAudio.current) {
+      const bAudio = new Audio('/booking_alarm.mp3');
+      bAudio.loop = true;
+      bAudio.onerror = () => {
+        bookingAudioHasError.current = true;
+        synthAlarm.current.start();
+      };
+      bookingAudio.current = bAudio;
+    }
+
+    if (!bookingAudioHasError.current) {
       bookingAudio.current.play()
-        .then(() => console.log("Booking alarm audio started successfully."))
-        .catch((err) => {
-          console.warn("Audio file wail failed. Using synthesized wailing warlock engine:", err.message);
+        .catch(() => {
+          bookingAudioHasError.current = true;
           synthAlarm.current.start();
         });
     } else {
@@ -195,12 +278,21 @@ export function UnifiedAlertListener({ currentUserId }: UnifiedAlertListenerProp
   const triggerMessageChime = () => {
     if (!soundEnabled) return;
 
-    if (messageAudio.current) {
+    if (!messageAudio.current) {
+      const mAudio = new Audio('/message_chime.mp3');
+      mAudio.loop = false;
+      mAudio.onerror = () => {
+        messageAudioHasError.current = true;
+        synthChime.current.play();
+      };
+      messageAudio.current = mAudio;
+    }
+
+    if (!messageAudioHasError.current) {
       messageAudio.current.currentTime = 0;
       messageAudio.current.play()
-        .then(() => console.log("Message chime audio played."))
-        .catch((err) => {
-          console.warn("Message audio file failed. Using synthesized bell chime engine:", err.message);
+        .catch(() => {
+          messageAudioHasError.current = true;
           synthChime.current.play();
         });
     } else {
@@ -312,31 +404,6 @@ export function UnifiedAlertListener({ currentUserId }: UnifiedAlertListenerProp
           </div>
         </div>
       )}
-
-      {/* Floating System Sound Engine Arm/Mute Controller Widget */}
-      <div id="unified-alert-sound-controller" className="fixed bottom-24 right-4 z-50">
-        <button
-          type="button"
-          onClick={handleToggleSound}
-          className={`flex items-center gap-2 px-3.5 py-2.5 rounded-2xl font-mono text-[10px] font-black border transition-all duration-300 shadow-2xl cursor-pointer ${
-            soundEnabled
-              ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-400 border-emerald-500/30 shadow-emerald-950/20'
-              : 'bg-gradient-to-r from-rose-500/10 to-pink-500/10 text-pink-400 border-pink-500/20 shadow-pink-950/20'
-          }`}
-        >
-          {soundEnabled ? (
-            <>
-              <Volume2 className="w-3.5 h-3.5 animate-bounce" />
-              <span className="uppercase tracking-wide">Alarms Armed</span>
-            </>
-          ) : (
-            <>
-              <VolumeX className="w-3.5 h-3.5 animate-pulse" />
-              <span className="uppercase tracking-wide">Alarms Inert (Tap)</span>
-            </>
-          )}
-        </button>
-      </div>
     </>
   );
 }

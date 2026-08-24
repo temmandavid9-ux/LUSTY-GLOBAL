@@ -6,7 +6,7 @@ interface BookingRequest {
   created_at: string;
   duration_hours: number;
   hourly_rate_at_booking: number;
-  status: 'pending' | 'confirmed' | 'active' | 'completed' | 'cancelled' | 'paid_escrow' | 'pending_confirmation';
+  status: 'pending' | 'confirmed' | 'active' | 'completed' | 'cancelled' | 'paid_escrow' | 'pending_confirmation' | 'pending_transfer' | 'funded';
   escrow_status: 'held' | 'released' | 'refunded';
   client_id: string;
   location: string;
@@ -22,19 +22,49 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  // 1. Fetch live booking inquiries tied to this companion ID
-  const fetchHostBookings = async () => {
+  // 1. Fetch live booking inquiries tied to client or companion ID from booking_ledgers
+  const fetchActiveBookings = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*')
-        .eq('companion_id', currentUserId)
-        .order('created_at', { ascending: false });
+      const { data: { user } } = await supabase.auth.getUser();
+      const activeId = currentUserId || user?.id;
 
-      if (error) throw error;
-      setBookings(data || []);
-    } catch (err) {
+      // Strict safeguard: Clear records and stop if no user is signed in
+      if (!activeId) {
+        setBookings([]);
+        setIsLoading(false);
+        return;
+      }
+
+      const [ledgersRes, bookingsRes] = await Promise.all([
+        supabase
+          .from('booking_ledgers')
+          .select('*')
+          .or(`client_id.eq.${activeId},companion_id.eq.${activeId}`)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('bookings')
+          .select('*')
+          .or(`client_id.eq.${activeId},companion_id.eq.${activeId}`)
+          .order('created_at', { ascending: false })
+      ]);
+
+      const rawData = [
+        ...(ledgersRes.data || []),
+        ...(bookingsRes.data || [])
+      ];
+
+      const seen = new Set<string>();
+      const combinedData = rawData.filter(item => {
+        const key = item.id || item.tx_ref;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+      console.log("Fetched Bookings Raw Data (HostRequestManager):", combinedData);
+      setBookings(combinedData);
+    } catch (err: any) {
       console.error('Error fetching host ledger:', err);
     } finally {
       setIsLoading(false);
@@ -42,7 +72,31 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
   };
 
   useEffect(() => {
-    if (currentUserId) fetchHostBookings();
+    fetchActiveBookings();
+
+    const channel = supabase
+      .channel(`host_request_manager_realtime_${currentUserId || 'active'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'booking_ledgers' },
+        (payload) => {
+          console.log('🔄 Real-time database change detected (booking_ledgers)! Syncing host requests...', payload);
+          fetchActiveBookings();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        (payload) => {
+          console.log('🔄 Real-time database change detected (bookings)! Syncing host requests...', payload);
+          fetchActiveBookings();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [currentUserId]);
 
   // 2. Action: Accept incoming appointment
@@ -55,7 +109,7 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
         .eq('id', id);
 
       if (error) throw error;
-      await fetchHostBookings(); // Refresh single source of truth
+      await fetchActiveBookings(); // Refresh single source of truth
     } catch (err) {
       console.error(err);
     } finally {
@@ -73,7 +127,7 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
         .eq('id', id);
 
       if (error) throw error;
-      await fetchHostBookings();
+      await fetchActiveBookings();
     } catch (err) {
       console.error(err);
     } finally {
@@ -96,7 +150,7 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
       const data = await response.json();
       if (response.ok && data.success) {
         alert("🚨 [Auto-Release Sandbox] 24-Hour safety window expired without dispute. Escrow released automatically to your linked bank account!");
-        await fetchHostBookings();
+        await fetchActiveBookings();
       } else {
         alert(`❌ Failed to release escrow: ${data.error || "Unknown error"}`);
       }
@@ -116,7 +170,7 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
           <p className="text-[11px] text-zinc-400 mt-0.5">Approve incoming requests, complete rendezvous, and track secure escrow releases.</p>
         </div>
         <button 
-          onClick={fetchHostBookings}
+          onClick={fetchActiveBookings}
           className="p-1.5 bg-zinc-950 hover:bg-zinc-900 text-zinc-400 rounded-lg text-[10px] font-mono border border-zinc-850 transition cursor-pointer font-black"
         >
           🔄 Refresh
@@ -141,13 +195,14 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-mono font-black text-white">ID: ...{booking.id.slice(-6)}</span>
                     <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
-                      booking.status === 'pending' || booking.status === 'paid_escrow' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                      booking.status === 'pending' || booking.status === 'paid_escrow' || booking.status === 'funded' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                      booking.status === 'pending_transfer' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
                       booking.status === 'confirmed' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
                       booking.status === 'pending_confirmation' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse' :
                       booking.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
                       'bg-zinc-800 text-zinc-500'
                     }`}>
-                      {booking.status === 'paid_escrow' ? 'paid (escrow)' : booking.status === 'pending_confirmation' ? 'rendered' : booking.status}
+                      {booking.status === 'paid_escrow' || booking.status === 'funded' ? 'funded (escrow)' : booking.status === 'pending_transfer' ? 'pending bank transfer' : booking.status === 'pending_confirmation' ? 'rendered' : booking.status}
                     </span>
                   </div>
                   <p className="text-xs text-zinc-400 mt-1 font-mono">
@@ -163,7 +218,28 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
 
                 {/* Dynamic Action Trigger Blocks */}
                 <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
-                  {(booking.status === 'pending' || booking.status === 'paid_escrow') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('lounge-start-video-call', {
+                        detail: {
+                          booking: {
+                            id: booking.id,
+                            duration: booking.duration_hours || 1,
+                            rate: booking.hourly_rate_at_booking || 250,
+                            location: booking.location || 'London, Mayfair',
+                            escrowDeposit: (booking.duration_hours || 1) * (booking.hourly_rate_at_booking || 250)
+                          }
+                        }
+                      }));
+                    }}
+                    className="bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 border border-pink-500/30 text-[10px] font-black uppercase px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 cursor-pointer active:scale-95 shrink-0"
+                    title="Start 1-on-1 WebRTC Video Session"
+                  >
+                    🎥 Start Video Call
+                  </button>
+
+                  {(booking.status === 'pending' || booking.status === 'paid_escrow' || booking.status === 'pending_transfer') && (
                     <button
                       type="button"
                       onClick={() => handleAcceptBooking(booking.id)}

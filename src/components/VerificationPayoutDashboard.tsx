@@ -2,13 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   ShieldCheck, 
   Lock, 
-  Check, 
-  ChevronRight, 
   TrendingUp, 
   Sparkles,
   Video,
-  Camera,
-  Flame
+  Camera
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { MultiCurrencyWallet } from './MultiCurrencyWallet';
@@ -18,7 +15,13 @@ import { LoungeShortsStudio } from './LoungeShortsStudio';
 import { CreatorVideoCatalog } from './CreatorVideoCatalog';
 import { RequestPayoutButton } from './RequestPayoutButton';
 import { HostSettlementForm } from './HostSettlementForm';
+import { ReceivedTipsView } from './ReceivedTipsView';
+import { VipSecurityLedger } from './VipSecurityLedger';
+import { LustyGlobalLogo } from './LustyGlobalLogo';
+import { formatMetricCount } from '../utils/formatMetrics';
 import { HostLinkGenerator } from './HostLinkGenerator';
+import PrestigeBadgePortal from './PrestigeBadgePortal';
+import { useHostSettlements } from '../hooks/useHostSettlements';
 
 interface VerificationPayoutDashboardProps {
   userProfile: { id: string; username: string; avatar: string };
@@ -53,7 +56,6 @@ export default function VerificationPayoutDashboard({
   
   // Badge Styles Preferences
   const [badgeType, setBadgeType] = useState<'instagram' | 'facebook'>('instagram');
-  const [activeStep, setActiveStep] = useState<'details' | 'payment'>('details');
 
   // Video Management Tabs
   const [videoTab, setVideoTab] = useState<'upload' | 'catalog'>('upload');
@@ -82,45 +84,61 @@ export default function VerificationPayoutDashboard({
   // Payout / Ledger States
   const [earningsBalance, setEarningsBalance] = useState(1450.00);
   const [totalWithdrawn, setTotalWithdrawn] = useState(3800.00);
-  const [pendingLedgerBalance, setPendingLedgerBalance] = useState<number>(0);
-  const [processingLedgerBalance, setProcessingLedgerBalance] = useState<number>(0);
-  const [settledLedgerBalance, setSettledLedgerBalance] = useState<number>(0);
+  const hostSettlements = useHostSettlements(userProfile?.id);
+
+  const pendingLedgerBalance = hostSettlements.pending;
+  const processingLedgerBalance = hostSettlements.processing;
+  const settledLedgerBalance = hostSettlements.settled;
 
   const fetchLedgerBalances = async () => {
     if (!userProfile?.id) return;
     try {
-      const { data, error } = await supabase
-        .from('platform_ledger')
-        .select('amount, settlement_status')
-        .eq('recipient_id', userProfile.id);
+      // 1. Fetch booking_ledgers or bookings
+      let { data } = await supabase
+        .from('booking_ledgers')
+        .select('*')
+        .or(`companion_id.eq.${userProfile.id},client_id.eq.${userProfile.id}`);
 
-      if (error) throw error;
+      if (!data || data.length === 0) {
+        const fallback = await supabase
+          .from('bookings')
+          .select('*')
+          .or(`companion_id.eq.${userProfile.id},client_id.eq.${userProfile.id}`);
+        if (fallback.data && fallback.data.length > 0) {
+          data = fallback.data;
+        }
+      }
 
-      if (data) {
+      if (!data || data.length === 0) {
+        const platLedger = await supabase
+          .from('platform_ledger')
+          .select('*')
+          .eq('recipient_id', userProfile.id);
+        if (platLedger.data && platLedger.data.length > 0) {
+          data = platLedger.data.map((p: any) => ({
+            ...p,
+            status: p.settlement_status || p.status,
+            gross_amount: p.amount || p.gross_amount
+          }));
+        }
+      }
+
+      if (data && data.length > 0) {
         let pending = 0;
-        let processing = 0;
         let settled = 0;
 
         data.forEach((row: any) => {
-          const amt = Number(row.amount || 0);
-          const status = String(row.settlement_status || '').toLowerCase();
-          if (status === 'pending') {
+          const amt = Number(row.gross_amount || row.amount || row.net_payout || 0);
+          const status = String(row.status || row.escrow_status || row.settlement_status || '').toLowerCase();
+          if (['pending', 'escrowed', 'paid_escrow', 'funded', 'held'].includes(status)) {
             pending += amt;
-          } else if (status === 'processing') {
-            processing += amt;
-          } else if (status === 'settled') {
+          } else if (['settled', 'completed', 'released'].includes(status)) {
             settled += amt;
           }
         });
 
-        setPendingLedgerBalance(pending);
-        setProcessingLedgerBalance(processing);
-        setSettledLedgerBalance(settled);
-
-        if (data.length > 0) {
-          setEarningsBalance(pending);
-          setTotalWithdrawn(settled);
-        }
+        if (pending > 0) setEarningsBalance(pending);
+        if (settled > 0) setTotalWithdrawn(settled);
       }
     } catch (err) {
       console.warn("Error fetching ledger balances:", err);
@@ -225,14 +243,6 @@ export default function VerificationPayoutDashboard({
     fetchLedgerBalances();
     fetchCreatorEarnings();
   }, [userProfile?.id, refreshTrigger]);
-
-  // Verification Billing states
-  const [cardName, setCardName] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvv, setCardCvv] = useState('');
-  const [isAuthorizingVerif, setIsAuthorizingVerif] = useState(false);
-  const [verifError, setVerifError] = useState('');
 
 
 
@@ -492,45 +502,6 @@ export default function VerificationPayoutDashboard({
     }
   };
 
-  // Payment for verification
-  const handlePayVerification = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cardName || !cardNumber || !cardExpiry || !cardCvv) {
-      setVerifError("Please fill out all cardholder credentials.");
-      return;
-    }
-    setVerifError('');
-    setIsAuthorizingVerif(true);
-
-    try {
-      if (userProfile?.id) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({ 
-            is_verified: true,
-            verified: 'true'
-          })
-          .eq('id', userProfile.id);
-
-        if (profileError) {
-          console.error("Failed to persist verification status:", profileError.message);
-          setVerifError("Payment received, but profile sync failed. Please contact support.");
-          setIsAuthorizingVerif(false);
-          return;
-        }
-      }
-
-      setIsAuthorizingVerif(false);
-      onVerifySuccess();
-      setActiveStep('details');
-      setProfile((prev: any) => prev ? { ...prev, is_verified: true } : prev);
-    } catch (err: any) {
-      console.error("Verification payment exception:", err);
-      setVerifError(err.message || "An unexpected error occurred during profile synchronization.");
-      setIsAuthorizingVerif(false);
-    }
-  };
-
   // Process a new payout request
   const handlePayoutSuccess = (nextBalance: number, payoutDetails: { amount: number; method: string; account: string }) => {
     setEarningsBalance(nextBalance);
@@ -557,13 +528,7 @@ export default function VerificationPayoutDashboard({
         
         {/* ── 🔥 OFFICIAL BRAND LOGO ALIGNMENT MATRIX ── */}
         <div className="flex items-center gap-2 select-none">
-          {/* Gold Flame Asset */}
-          <Flame className="w-5 h-5 text-[#eab308] fill-[#eab308] shrink-0" />
-          
-          {/* Pink to Purple Typography Styling */}
-          <span className="font-sans font-black text-sm uppercase tracking-wider bg-gradient-to-r from-[#ec4899] to-[#a855f7] bg-clip-text text-transparent">
-            Lusty VIP
-          </span>
+          <LustyGlobalLogo />
         </div>
         
         {/* 👤 DROPDOWN CONTROLLER ANCHOR */}
@@ -777,6 +742,13 @@ export default function VerificationPayoutDashboard({
                   escrowBalance={escrowBalance} 
                 />
 
+                {userProfile?.id && (
+                  <>
+                    <ReceivedTipsView userId={userProfile.id} />
+                    <VipSecurityLedger userId={userProfile.id} />
+                  </>
+                )}
+
                 <button 
                   type="button"
                   onClick={(e) => {
@@ -906,7 +878,7 @@ export default function VerificationPayoutDashboard({
               <span className="text-3xl font-black text-white font-mono">
                 {(() => {
                   const liveTrafficViews = shortsData.reduce((sum, post) => sum + (post.views_count || 0), 0);
-                  return (liveTrafficViews || profile?.views_count || 1250).toLocaleString();
+                  return formatMetricCount(liveTrafficViews || profile?.views_count || 1250);
                 })()}
               </span>
               <span className="text-xs text-zinc-400 font-mono">Views</span>
@@ -918,50 +890,65 @@ export default function VerificationPayoutDashboard({
             </div>
           </div>
 
-          {/* HOST SETTLEMENT & LEDGER PAYOUTS */}
-          <div className="border-t border-zinc-800/60 pt-4 mt-6">
-            <h4 className="text-[10px] font-black tracking-wider uppercase text-zinc-500 font-mono mb-3">
-              Host Settlement & Ledger Payouts
-            </h4>
-            
-            <div className="grid grid-cols-3 gap-2 mb-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-850/60">
-              <div className="text-center">
-                <span className="text-[9px] text-zinc-500 block uppercase font-mono">Pending</span>
-                <span className="text-xs font-bold font-mono text-zinc-300">
-                  ${pendingLedgerBalance.toFixed(2)}
-                </span>
+            {/* HOST SETTLEMENT & LEDGER PAYOUTS */}
+            <div className="border-t border-zinc-800/60 pt-4 mt-6">
+              <h4 className="text-[10px] font-black tracking-wider uppercase text-zinc-500 font-mono mb-3">
+                Host Settlement & Ledger Payouts
+              </h4>
+              
+              <div className="grid grid-cols-3 gap-2 mb-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-850/60">
+                <div className="text-center">
+                  <span className="text-[9px] text-zinc-500 block uppercase font-mono">Pending</span>
+                  <span className="text-xs font-bold font-mono text-zinc-300">
+                    ${pendingLedgerBalance.toFixed(2)}
+                  </span>
+                </div>
+                <div className="text-center border-x border-zinc-850/80">
+                  <span className="text-[9px] text-zinc-500 block uppercase font-mono">Processing</span>
+                  <span className="text-xs font-bold font-mono text-pink-400">
+                    ${processingLedgerBalance.toFixed(2)}
+                  </span>
+                </div>
+                <div className="text-center">
+                  <span className="text-[9px] text-zinc-500 block uppercase font-mono">Settled</span>
+                  <span className="text-xs font-bold font-mono text-emerald-400">
+                    ${settledLedgerBalance.toFixed(2)}
+                  </span>
+                </div>
               </div>
-              <div className="text-center border-x border-zinc-850/80">
-                <span className="text-[9px] text-zinc-500 block uppercase font-mono">Processing</span>
-                <span className="text-xs font-bold font-mono text-pink-400">
-                  ${processingLedgerBalance.toFixed(2)}
-                </span>
-              </div>
-              <div className="text-center">
-                <span className="text-[9px] text-zinc-500 block uppercase font-mono">Settled</span>
-                <span className="text-xs font-bold font-mono text-emerald-400">
-                  ${settledLedgerBalance.toFixed(2)}
-                </span>
-              </div>
-            </div>
 
-            <RequestPayoutButton 
-              currentUserId={userProfile?.id || ''}
-              pendingBalance={pendingLedgerBalance}
-              payoutConfigured={!!profile?.payout_configured}
-              onPayoutRequested={() => {
-                // Refresh dashboard stats instantly
-                fetchLedgerBalances();
-                setRefreshTrigger(prev => prev + 1);
-              }}
-            />
+              <RequestPayoutButton 
+                currentUserId={userProfile?.id || ''}
+                pendingBalance={pendingLedgerBalance}
+                escrowBalance={escrowBalance}
+                payoutConfigured={Boolean(
+                  profile?.payout_configured ||
+                  profile?.has_payment_method ||
+                  profile?.settlement_account_number ||
+                  (() => {
+                    try {
+                      const stored = localStorage.getItem(`settlement_config_${userProfile?.id}`);
+                      if (stored) {
+                        const parsed = JSON.parse(stored);
+                        return Boolean(parsed?.payout_configured || parsed?.has_payment_method || parsed?.settlement_account_number);
+                      }
+                    } catch (e) {}
+                    return false;
+                  })()
+                )}
+                onPayoutRequested={() => {
+                  // Refresh dashboard stats instantly
+                  fetchLedgerBalances();
+                  setRefreshTrigger(prev => prev + 1);
+                }}
+              />
 
-            <HostSettlementForm 
-              currentUser={userProfile}
-              onConfigured={() => {
-                setRefreshTrigger(prev => prev + 1);
-              }}
-            />
+              <HostSettlementForm 
+                currentUser={userProfile}
+                onConfigured={() => {
+                  setRefreshTrigger(prev => prev + 1);
+                }}
+              />
 
              {/* Split Payouts Ledger List */}
              <div className="mt-4 border-t border-zinc-800/40 pt-4">
@@ -1166,19 +1153,19 @@ export default function VerificationPayoutDashboard({
         </div>
 
         {/* VERIFICATION COLUMN */}
-        <div className="lg:col-span-4 bg-zinc-900 border border-zinc-800 rounded-3xl p-6 relative overflow-hidden flex flex-col justify-between">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/5 rounded-full blur-3xl pointer-events-none" />
-          
-          <div>
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800/60">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-sky-400" />
-                <h3 className="font-extrabold text-sm text-white font-mono">PRESTIGE BADGE PORTAL</h3>
+        {isVerified ? (
+          <div className="lg:col-span-4 bg-zinc-900 border border-zinc-800 rounded-3xl p-6 relative overflow-hidden flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/5 rounded-full blur-3xl pointer-events-none" />
+            
+            <div>
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800/60">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-sky-400" />
+                  <h3 className="font-extrabold text-sm text-white font-mono">PRESTIGE BADGE PORTAL</h3>
+                </div>
+                <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest font-bold">Security Pass</span>
               </div>
-              <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest font-bold">Security Pass</span>
-            </div>
 
-            {isVerified ? (
               <div className="bg-sky-950/10 border border-sky-500/20 rounded-2xl p-5 text-center">
                 <div className="w-14 h-14 rounded-full bg-sky-950 flex items-center justify-center mx-auto mb-3 border border-sky-500/20">
                   <VerificationBadge type={badgeType} size={32} />
@@ -1216,150 +1203,23 @@ export default function VerificationPayoutDashboard({
                   </button>
                 </div>
               </div>
-            ) : (
-              <div>
-                <p className="text-xs text-zinc-400 leading-relaxed mb-4">
-                  Companion listings with authenticated blue validation badges attract up to <span className="text-sky-400 font-bold font-mono">20x higher booking offers</span>. Unlock yours immediately.
-                </p>
+            </div>
 
-                {activeStep === 'details' ? (
-                  <div className="flex flex-col gap-4">
-                    <div className="bg-zinc-950 border border-zinc-850 p-4 rounded-2xl flex flex-col gap-3">
-                      <div className="flex items-start gap-2 text-xs">
-                        <Check className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-                        <div>
-                          <strong className="text-zinc-200 block text-[11px] font-mono">Verification Star Badge</strong>
-                          <span className="text-zinc-400 text-[10px]">Appends direct verification indicators next to your profile.</span>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-2 text-xs">
-                        <Check className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-                        <div>
-                          <strong className="text-zinc-200 block text-[11px] font-mono">Algorithmic Directory Boost</strong>
-                          <span className="text-zinc-400 text-[10px]">Places your profile card on front-row directories.</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => setActiveStep('payment')}
-                      className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-extrabold text-xs py-3.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow"
-                    >
-                      <span>Proceed to Verification Checkout</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <form onSubmit={handlePayVerification} className="space-y-3">
-                    {verifError && (
-                      <div className="bg-red-950/40 border border-red-500/20 text-red-400 text-[10px] py-1.5 px-2.5 rounded-lg font-mono">
-                        ⚠️ {verifError}
-                      </div>
-                    )}
-
-                    <div className="bg-zinc-950 p-3.5 border border-zinc-850 rounded-2xl text-center">
-                      <span className="text-[10px] text-zinc-500 font-mono block uppercase">One-Time Lifetime Fee</span>
-                      <span className="text-xl font-black text-sky-400 font-mono">$400.00</span>
-                    </div>
-
-                    <div>
-                      <label className="text-[9px] font-mono uppercase tracking-widest text-zinc-500 block mb-1">CARD HOLDER NAME</label>
-                      <input 
-                        type="text"
-                        required
-                        value={cardName}
-                        onChange={(e) => setCardName(e.target.value)}
-                        placeholder="CARD HOLDER NAME"
-                        className="w-full bg-zinc-950 text-xs text-zinc-100 rounded-xl px-3 py-2 border border-zinc-800 focus:outline-none focus:border-sky-500 font-mono uppercase"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[9px] font-mono uppercase tracking-widest text-zinc-500 block mb-1">Credit Card Number</label>
-                      <input 
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={16}
-                        required
-                        value={cardNumber}
-                        onChange={(e) => setCardNumber(e.target.value.replace(/\D/g, ''))}
-                        onInput={(e: React.FormEvent<HTMLInputElement>) => {
-                          e.currentTarget.value = e.currentTarget.value.replace(/\D/g, '');
-                        }}
-                        placeholder="0000 0000 0000 0000"
-                        className="w-full bg-zinc-950 text-xs text-zinc-100 rounded-xl px-3 py-2 border border-zinc-800 focus:outline-none focus:border-sky-500 font-mono"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[9px] font-mono uppercase tracking-widest text-zinc-500 block mb-1">Expiry Date</label>
-                        <input 
-                          type="text"
-                          required
-                          value={cardExpiry}
-                          onChange={(e) => setCardExpiry(e.target.value)}
-                          onInput={(e: React.ChangeEvent<HTMLInputElement>) => {
-                            // Strip everything except numbers and forward slashes
-                            let cleaned = e.target.value.replace(/[^0-9/]/g, '');
-                            
-                            // Auto-insert the slash character if the user types the 2 month digits cleanly
-                            if (cleaned.length === 2 && !cleaned.includes('/')) {
-                              cleaned = cleaned + '/';
-                            }
-                            e.target.value = cleaned;
-                          }}
-                          placeholder="MM/YY"
-                          maxLength={5}
-                          className="w-full bg-zinc-950 text-xs text-zinc-100 rounded-xl px-3 py-2 border border-zinc-800 focus:outline-none focus:border-sky-500 font-mono text-center"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[9px] font-mono uppercase tracking-widest text-zinc-500 block mb-1">CVV Security Code</label>
-                        <input 
-                          type="text"
-                          inputMode="numeric"
-                          maxLength={3}
-                          required
-                          value={cardCvv}
-                          onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, ''))}
-                          onInput={(e: React.FormEvent<HTMLInputElement>) => {
-                            e.currentTarget.value = e.currentTarget.value.replace(/\D/g, '');
-                          }}
-                          placeholder="000"
-                          className="w-full bg-zinc-950 text-xs text-zinc-100 rounded-xl px-3 py-2 border border-zinc-800 focus:outline-none focus:border-sky-500 font-mono text-center"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => { setActiveStep('details'); setVerifError(''); }}
-                        className="bg-zinc-800 hover:bg-zinc-750 text-zinc-300 font-bold text-xs px-4 py-3 rounded-xl transition font-mono uppercase"
-                      >
-                        Back
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isAuthorizingVerif}
-                        className="flex-1 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-black text-xs py-3 rounded-xl transition shadow flex items-center justify-center gap-1.5 font-mono uppercase"
-                      >
-                        {isAuthorizingVerif ? 'PROCESSING...' : 'ACTIVATE BADGE'}
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            )}
+            <div className="mt-5 pt-3 border-t border-zinc-800/60 flex items-center gap-[10px] text-[10px] text-zinc-500 font-mono">
+              <Lock className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+              <span>Adheres strictly to modern encryption verification protocols.</span>
+            </div>
           </div>
-
-          <div className="mt-5 pt-3 border-t border-zinc-800/60 flex items-center gap-[10px] text-[10px] text-zinc-500 font-mono">
-            <Lock className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
-            <span>Adheres strictly to modern encryption verification protocols.</span>
-          </div>
-        </div>
+        ) : (
+          <PrestigeBadgePortal 
+            userProfile={userProfile} 
+            profile={profile} 
+            onVerifySuccess={() => {
+              if (onVerifySuccess) onVerifySuccess();
+              setProfile((prev: any) => prev ? { ...prev, is_verified: true } : prev);
+            }} 
+          />
+        )}
 
       </div>
 

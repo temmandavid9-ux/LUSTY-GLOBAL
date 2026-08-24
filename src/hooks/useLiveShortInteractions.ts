@@ -240,19 +240,40 @@ export function useLiveShortInteractions(shortId: string | number, currentUserId
       // Record video view interaction explicitly in video_interactions table as requested
       try {
         const fallbackUserId = currentUserId && currentUserId !== 'anonymous_lounge_guest' ? currentUserId : 'anonymous_lounge_guest';
-        await supabase
+        const { error: interactionErr } = await supabase
           .from('video_interactions')
           .upsert([
             {
               user_id: fallbackUserId,
-              video_id: shortId,
+              video_id: String(shortId),
               interaction_type: 'view',
               created_at: new Date().toISOString()
             }
           ], { onConflict: 'user_id,video_id,interaction_type' });
-        console.log("👀 View logged permanently to video_interactions via upsert!");
+
+        if (interactionErr) {
+          // If upsert fails (e.g. missing constraint or column mismatch), try standard insert fallback
+          const { error: insertErr } = await supabase
+            .from('video_interactions')
+            .insert([
+              {
+                user_id: fallbackUserId,
+                video_id: String(shortId),
+                interaction_type: 'view',
+                created_at: new Date().toISOString()
+              }
+            ]);
+
+          if (insertErr) {
+            console.warn("Could not write to video_interactions table:", insertErr.message);
+          } else {
+            console.log("👀 View logged permanently to video_interactions via fallback insert!");
+          }
+        } else {
+          console.log("👀 View logged permanently to video_interactions via upsert!");
+        }
       } catch (interactionErr: any) {
-        console.warn("Could not write to video_interactions table:", interactionErr.message);
+        console.warn("Could not write to video_interactions table:", interactionErr?.message || interactionErr);
       }
     }, 1500);
     return () => clearTimeout(timer);

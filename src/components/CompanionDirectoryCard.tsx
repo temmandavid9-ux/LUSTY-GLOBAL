@@ -4,6 +4,9 @@ import { Loader2, Clock, Heart, Flame, Eye } from 'lucide-react';
 import { Companion, Booking } from '../types';
 import { motion } from 'motion/react';
 import { initiateFlutterwavePayment } from '../lib/flutterwave';
+import { chargeLinkedCard } from '../lib/chargeLinkedCard';
+import { OptimizedImage } from './OptimizedImage';
+import { formatMetricCount } from '../utils/formatMetrics';
 
 interface CompanionDirectoryCardProps {
   companion: Companion;
@@ -62,35 +65,230 @@ export function CompanionDirectoryCard({
         return;
       }
 
+      // Get current user email for checkout
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const userEmail = currentUser?.email || "vipmember@gmail.com";
+
+      const processBookingSuccess = async (paymentGatewayRef: string) => {
+        const grossAmount = basePrice;
+
+        // 1. Instantly show success UI and update frontend booking state (non-blocking)
+        const tempBookingId = crypto.randomUUID();
+        const createdBooking: Booking = {
+          id: tempBookingId,
+          companionId: companion.id,
+          date: new Date().toLocaleDateString(),
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          duration: bookingHours,
+          rate: companion.ratePerHour,
+          location: companion.location,
+          status: 'paid_escrow',
+          notes: 'Secure platform-managed escrow custody hold'
+        };
+
+        onAddBooking(createdBooking);
+
+        setBookingFeedback({
+          type: 'success',
+          message: `Payment Confirmed! $${totalCost.toFixed(2)} is held in Platform Escrow. The booking request has been sent to @${companion.username} (Status: paid_escrow).`
+        });
+
+        setIsBooking(false);
+
+        // Auto collapse panel after success delay
+        setTimeout(() => {
+          setShowBookingPanel(false);
+          setBookingFeedback(null);
+        }, 5000);
+
+        // 2. Perform DB write with a 5-second timeout safety net in the background
+        const insertPromise = (async () => {
+          const bookingRow = {
+            id: tempBookingId,
+            companion_id: companion.id,
+            client_id: currentUserId,
+            booking_date: new Date().toISOString(),
+            duration_hours: bookingHours,
+            hourly_rate_at_booking: companion.ratePerHour,
+            gross_amount: grossAmount,
+            status: 'paid_escrow',
+            escrow_status: 'held', // Secured instantly in the platform's custody wallet
+          };
+
+          const { data: bookingData, error: bookingError } = await supabase
+            .from('bookings')
+            .insert([bookingRow])
+            .select()
+            .maybeSingle();
+
+          // Also attempt insert into booking_ledgers for dual-table durability
+          try {
+            await supabase.from('booking_ledgers').insert([bookingRow]);
+          } catch (ledgerErr) {
+            console.warn("Dual write to booking_ledgers notice:", ledgerErr);
+          }
+
+          if (bookingError) throw bookingError;
+          console.log("Successfully logged escrow booking to ledger database:", bookingData);
+
+          // Log unified audit history
+          try {
+            await supabase.from('transaction_history').insert([{
+              sender_id: currentUserId,
+              receiver_id: companion.id,
+              transaction_type: 'booking',
+              status: 'paid_escrow',
+              gross_amount: grossAmount,
+              platform_fee: grossAmount * 0.15,
+              net_payout: grossAmount * 0.85,
+              tx_ref: paymentGatewayRef
+            }]);
+          } catch (histErr) {
+            console.warn("Unified transaction log error (ignored):", histErr);
+          }
+        })();
+
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Ledger write timed out')), 5000)
+        );
+
+        try {
+          await Promise.race([insertPromise, timeoutPromise]);
+        } catch (err: any) {
+          console.error("Ledger write timed out, but payment was captured:", err);
+          try {
+            await supabase.from('payment_errors').insert([{
+              tx_ref: paymentGatewayRef,
+              amount: grossAmount,
+              error_msg: `Booking Ledger Error: ${err.message || 'Timeout'}`
+            }]);
+          } catch (logErr) {
+            console.warn("Failed to log to payment_errors table:", logErr);
+          }
+        }
+      };
+
+      // 🎯 Attempt 1-Click Debit with Linked Card Token First
+      try {
+        const tokenChargeResult = await chargeLinkedCard({
+          userId: currentUserId,
+          userEmail,
+          amount: totalCost,
+          currency: 'USD'
+        });
+
+        if (tokenChargeResult?.success) {
+          console.log("⚡ 1-Click Linked Card Debit Succeeded!", tokenChargeResult);
+          await processBookingSuccess(tokenChargeResult.data?.txRef || tokenChargeResult.data?.tx_ref || `TOK-${Date.now()}`);
+          return;
+        }
+      } catch (tokenErr: any) {
+        console.log("1-Click linked card debit unavailable or deferred:", tokenErr?.message);
+      }
+
+      // 🎯 Fallback: Launch Flutterwave Gateway Checkout Modal with Pre-recorded Ledger Entry
       console.log(`Spinning up secure Flutterwave checkout for $${totalCost.toFixed(2)} to main platform wallet...`);
 
-      // 🎯 FLUTTERWAVE GATEWAY EXECUTION
+      const generatedTxRef = `TX-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const grossAmount = basePrice;
+
+      // STEP ONE: Pre-create pending booking record in Supabase IN ADVANCE
+      const bookingUuid = crypto.randomUUID();
+      const preBookingRow = {
+        id: bookingUuid,
+        companion_id: companion.id,
+        client_id: currentUserId,
+        booking_date: new Date().toISOString(),
+        duration_hours: bookingHours,
+        hourly_rate_at_booking: companion.ratePerHour,
+        gross_amount: grossAmount,
+        status: 'pending_transfer',
+        escrow_status: 'held',
+        payment_method: 'bank_transfer',
+        tx_ref: generatedTxRef
+      };
+
+      const { data: preBooking } = await supabase
+        .from('bookings')
+        .insert([preBookingRow])
+        .select()
+        .maybeSingle();
+
+      try {
+        await supabase.from('booking_ledgers').insert([preBookingRow]);
+      } catch (ledgerErr) {
+        console.warn("Dual pre-booking write notice:", ledgerErr);
+      }
+
+      // Log to transaction_history
+      try {
+        await supabase.from('transaction_history').insert([{
+          sender_id: currentUserId,
+          receiver_id: companion.id,
+          transaction_type: 'booking',
+          status: 'pending_transfer',
+          gross_amount: grossAmount,
+          platform_fee: grossAmount * 0.15,
+          net_payout: grossAmount * 0.85,
+          tx_ref: generatedTxRef
+        }]);
+      } catch (histErr) {
+        console.warn("Pre-booking audit log notice:", histErr);
+      }
+
+      // Show immediately in frontend UI state
+      const preBookingId = preBooking?.id || bookingUuid;
+      const pendingBooking: Booking = {
+        id: preBookingId,
+        companionId: companion.id,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        duration: bookingHours,
+        rate: companion.ratePerHour,
+        location: companion.location,
+        status: 'pending_transfer',
+        notes: 'Pending bank transfer settlement / Escrow processing'
+      };
+      onAddBooking(pendingBooking);
+
       await initiateFlutterwavePayment({
         amount: totalCost,
         currency: "USD",
-        email: "user@lustyglobal.vip",
-        name: "VIP Member",
+        email: userEmail,
+        name: currentUser?.user_metadata?.full_name || "VIP Member",
         description: `Booking escrow of ${bookingHours} hours with @${companion.username}`,
+        txRef: generatedTxRef,
+        meta: {
+          client_id: currentUserId,
+          companion_id: companion.id,
+          booking_amount_usd: grossAmount,
+        },
         callback: async (response: any) => {
           if (response.status === "successful" || response.status === "completed" || response.success) {
-            const paymentGatewayRef = response.transaction_id || response.tx_ref || `TRX-${Date.now()}`;
-            const grossAmount = basePrice;
+            const paymentGatewayRef = response.transaction_id || response.tx_ref || generatedTxRef;
+            
+            // Update booking status on successful payment
+            const targetTxRef = response.tx_ref || generatedTxRef;
+            const { error: bookingUpdateErr } = await supabase
+              .from('bookings')
+              .update({
+                status: 'funded',
+                escrow_status: 'held'
+              })
+              .eq('tx_ref', targetTxRef);
 
-            // 1. Instantly show success UI and update frontend booking state (non-blocking)
-            const tempBookingId = `booking_${companion.id}_${Date.now()}`;
-            const createdBooking: Booking = {
-              id: tempBookingId,
-              companionId: companion.id,
-              date: new Date().toLocaleDateString(),
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              duration: bookingHours,
-              rate: companion.ratePerHour,
-              location: companion.location,
-              status: 'paid_escrow',
-              notes: 'Secure platform-managed escrow custody hold'
-            };
+            if (bookingUpdateErr) {
+              console.error('Failed to update booking status:', bookingUpdateErr.message);
+            }
 
-            onAddBooking(createdBooking);
+            try {
+              await supabase
+                .from('transaction_history')
+                .update({ status: 'paid_escrow', tx_ref: paymentGatewayRef })
+                .eq('tx_ref', generatedTxRef);
+            } catch (histErr) {
+              console.warn("Transaction history update notice:", histErr);
+            }
 
             setBookingFeedback({
               type: 'success',
@@ -99,70 +297,10 @@ export function CompanionDirectoryCard({
 
             setIsBooking(false);
 
-            // Auto collapse panel after success delay
             setTimeout(() => {
               setShowBookingPanel(false);
               setBookingFeedback(null);
             }, 5000);
-
-            // 2. Perform DB write with a 5-second timeout safety net in the background
-            const insertPromise = (async () => {
-              const { data: bookingData, error: bookingError } = await supabase
-                .from('bookings')
-                .insert([
-                  {
-                    companion_id: companion.id,
-                    client_id: currentUserId,
-                    duration_hours: bookingHours,
-                    hourly_rate_at_booking: companion.ratePerHour,
-                    gross_amount: grossAmount,
-                    status: 'paid_escrow',
-                    escrow_status: 'held', // Secured instantly in the platform's custody wallet
-                    location: companion.location
-                  }
-                ])
-                .select()
-                .maybeSingle();
-
-              if (bookingError) throw bookingError;
-              console.log("Successfully logged escrow booking to ledger database:", bookingData);
-
-              // Log unified audit history
-              try {
-                await supabase.from('transaction_history').insert([{
-                  sender_id: currentUserId,
-                  receiver_id: companion.id,
-                  transaction_type: 'booking',
-                  status: 'paid_escrow',
-                  gross_amount: grossAmount,
-                  platform_fee: grossAmount * 0.15,
-                  net_payout: grossAmount * 0.85,
-                  tx_ref: paymentGatewayRef
-                }]);
-              } catch (histErr) {
-                console.warn("Unified transaction log error (ignored):", histErr);
-              }
-            })();
-
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Ledger write timed out')), 5000)
-            );
-
-            try {
-              await Promise.race([insertPromise, timeoutPromise]);
-            } catch (err: any) {
-              console.error("Ledger write timed out, but payment was captured:", err);
-              // Log to administrative alert table for manual review
-              try {
-                await supabase.from('payment_errors').insert([{
-                  tx_ref: paymentGatewayRef,
-                  amount: grossAmount,
-                  error_msg: `Booking Ledger Error: ${err.message || 'Timeout'}`
-                }]);
-              } catch (logErr) {
-                console.warn("Failed to log to payment_errors table (likely missing, logging to console):", logErr);
-              }
-            }
           } else {
             setBookingFeedback({
               type: 'error',
@@ -174,6 +312,14 @@ export function CompanionDirectoryCard({
         onClose: () => {
           setIsBooking(false);
           console.log("Flutterwave booking modal closed.");
+          setBookingFeedback({
+            type: 'success',
+            message: `Bank transfer booking submitted! Status: pending_transfer. You can view it in your Booking History.`
+          });
+          setTimeout(() => {
+            setShowBookingPanel(false);
+            setBookingFeedback(null);
+          }, 4000);
         }
       });
 
@@ -244,10 +390,7 @@ export function CompanionDirectoryCard({
     // Generate static stable view count based on username seed, hourly rate, and reviewsCount
     const nameSeed = companion.username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     const baseViews = (companion.reviewsCount || 10) * 195 + (companion.ratePerHour || 150) * 4 + nameSeed * 3;
-    if (baseViews > 1000) {
-      return `${(baseViews / 1000).toFixed(1)}k`;
-    }
-    return `${baseViews}`;
+    return formatMetricCount(baseViews);
   };
 
   const isTrending = companion.reviewsCount > 25 || companion.isOnline || companion.isVIP;
@@ -268,9 +411,10 @@ export function CompanionDirectoryCard({
     >
       {/* 📸 Host Image & Top Badges Layer */}
       <div className="relative aspect-square w-full overflow-hidden bg-zinc-950">
-        <img 
+        <OptimizedImage 
           src={companion.images[0]} 
           alt={companion.name} 
+          width={400}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
         

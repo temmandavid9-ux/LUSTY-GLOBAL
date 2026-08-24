@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Eye, Heart, Film, Trash2, Sparkles, AlertCircle, Download, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { ShortsWatermark, drawWatermarkOnCanvas } from './ShortsWatermark';
+import { formatMetricCount } from '../utils/formatMetrics';
+import { getSafeVideoUrl } from '../utils/videoUtils';
 
 interface CreatorVideoCatalogProps {
   currentUserId: string;
@@ -37,7 +40,16 @@ export function CreatorVideoCatalog({ currentUserId, refreshTrigger = 0, readOnl
         
         if (isMounted) {
           console.log(`✅ Videos found in database: Array(${data?.length || 0})`);
-          setPastVideos(data || []);
+          const filteredData = (data || []).filter((item: any) => {
+            const hasVideoUrl = !!item.video_url;
+            const isNotTest = !(
+              (item.caption && item.caption.toLowerCase().includes('test')) || 
+              (item.title && item.title.toLowerCase().includes('test')) ||
+              (item.description && item.description.toLowerCase().includes('test'))
+            );
+            return hasVideoUrl && isNotTest;
+          });
+          setPastVideos(filteredData);
         }
       } catch (err: any) {
         if (isMounted) {
@@ -219,7 +231,7 @@ function PlaybackCard({
     if (isDownloading) return;
 
     setIsDownloading(true);
-    const downloadToastId = toast.loading("Downloading high-quality VIP version...", {
+    const downloadToastId = toast.loading("Downloading video...", {
       style: {
         background: '#09090b',
         color: '#f4f4f5',
@@ -227,39 +239,291 @@ function PlaybackCard({
       }
     });
 
+    // Hidden elements we need to clean up at the end
+    let videoEl: HTMLVideoElement | null = null;
+    let localBlobUrl: string | null = null;
+    let logoBlobUrl: string | null = null;
+    let audioContext: AudioContext | null = null;
+
     try {
-      const sessionRes = await supabase.auth.getSession();
-      const response = await fetch("https://vtmaffcyvhnnmfibfswm.supabase.co/functions/v1/watermark", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionRes.data.session?.access_token || ''}`
-        },
-        body: JSON.stringify({
-          videoUrl: video.video_url,
-          hostName: video.host_name,
-          watermarkUrl: 'https://www.image2url.com/r2/default/files/1784327208067-29e2d090-72ca-426d-926d-678e6bd4d967.png'
-        })
+      const videoUrl = video.video_url;
+      const hostName = video.host_name || 'VIP';
+
+      toast.loading("Buffering video stream...", {
+        id: downloadToastId,
+        style: {
+          background: '#09090b',
+          color: '#f4f4f5',
+          border: '1px solid #27272a'
+        }
       });
 
+      // 1. Fetch the video as a Blob first to solve CORS for Canvas and WebAudio
+      const response = await fetch(videoUrl);
       if (!response.ok) {
-        throw new Error("Failed to process watermarked video on server");
+        throw new Error("Failed to fetch video file.");
+      }
+      const videoBlob = await response.blob();
+      localBlobUrl = window.URL.createObjectURL(videoBlob);
+
+      // 2. Create off-screen video element
+      videoEl = document.createElement('video');
+      videoEl.src = localBlobUrl;
+      videoEl.crossOrigin = 'anonymous';
+      videoEl.muted = false; // Must be unmuted so audio track can be captured
+      videoEl.volume = 1.0; // Keep full 100% volume for recording capture
+      videoEl.playsInline = true;
+      
+      // Hidden hack: absolute position, out of sight but present in DOM so mobile Safari renders frames
+      videoEl.style.position = 'fixed';
+      videoEl.style.top = '-9999px';
+      videoEl.style.left = '-9999px';
+      videoEl.style.width = '1px';
+      videoEl.style.height = '1px';
+      videoEl.style.opacity = '0';
+      videoEl.style.pointerEvents = 'none';
+      document.body.appendChild(videoEl);
+
+      // Load metadata
+      await new Promise((resolve, reject) => {
+        if (!videoEl) return reject();
+        videoEl.onloadedmetadata = resolve;
+        videoEl.onerror = () => reject(new Error("Error loading video metadata"));
+      });
+
+      const duration = videoEl.duration || 10;
+      const width = videoEl.videoWidth || 720;
+      const height = videoEl.videoHeight || 1280;
+
+      // 3. Set up the canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error("Could not initialize canvas 2D context");
+
+      // 4. Load watermark logo
+      const logo = new Image();
+      let logoLoaded = false;
+      
+      // Try to fetch same-origin /logo.png as blob first to completely bypass CORS headers issues on localhost/iframe
+      try {
+        const logoRes = await fetch('/logo.png');
+        if (logoRes.ok) {
+          const logoBlob = await logoRes.blob();
+          logoBlobUrl = window.URL.createObjectURL(logoBlob);
+          logo.src = logoBlobUrl;
+          await new Promise((resolve, reject) => {
+            logo.onload = () => {
+              logoLoaded = true;
+              resolve(true);
+            };
+            logo.onerror = reject;
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to load local /logo.png via Blob fetch, trying fallback Supabase URL.", err);
       }
 
-      // Get the response stream as a Blob (guaranteed H.264 MP4 format)
-      const videoBlob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(videoBlob);
+      // Fallback: If local fetch failed, try loading /logo.png directly as an image
+      if (!logoLoaded) {
+        try {
+          logo.src = '/logo.png';
+          await new Promise((resolve, reject) => {
+            logo.onload = () => {
+              logoLoaded = true;
+              resolve(true);
+            };
+            logo.onerror = reject;
+          });
+        } catch (err) {
+          console.error("Watermark logo failed to load from fallback local URL. Proceeding with text-only watermark.", err);
+        }
+      }
 
-      // Trigger instant browser download
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = `LustyGlobal-VIP-${video.id || 'download'}.mp4`;
-      document.body.appendChild(link);
-      link.click();
+      // 5. Try capturing audio using WebAudio API + direct fallback
+      let audioTrack: MediaStreamTrack | null = null;
+      try {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const source = audioContext.createMediaElementSource(videoEl);
+        const destination = audioContext.createMediaStreamDestination();
+        
+        // Connect source directly to recording destination at 100% full volume
+        source.connect(destination);
+        
+        // Attenuate speaker playback so user isn't blasted with sound during export
+        const localGain = audioContext.createGain();
+        localGain.gain.value = 0.01;
+        source.connect(localGain);
+        localGain.connect(audioContext.destination);
 
-      // Clean up
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
+        audioTrack = destination.stream.getAudioTracks()[0] || null;
+      } catch (err) {
+        console.warn("Could not capture audio stream via WebAudio.", err);
+      }
+
+      // Direct fallback audio track from video element if captureStream is available
+      let directAudioTrack: MediaStreamTrack | null = null;
+      try {
+        if (!audioTrack && (videoEl as any).captureStream) {
+          const elemStream = (videoEl as any).captureStream();
+          directAudioTrack = elemStream.getAudioTracks()[0] || null;
+        }
+      } catch (e) {
+        console.warn("Direct captureStream audio fallback failed:", e);
+      }
+
+      const finalAudioTrack = audioTrack || directAudioTrack;
+
+      // 6. Set up MediaRecorder with compatible MIME types
+      const videoStream = canvas.captureStream(30);
+      const combinedStream = new MediaStream();
+      videoStream.getVideoTracks().forEach(track => combinedStream.addTrack(track));
+      if (finalAudioTrack) {
+        combinedStream.addTrack(finalAudioTrack);
+      }
+
+      const mimeTypes = [
+        'video/mp4;codecs=h264',
+        'video/webm;codecs=h264',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+        'video/ogg'
+      ];
+
+      let selectedMimeType = '';
+      for (const type of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          selectedMimeType = type;
+          break;
+        }
+      }
+
+      const recorderOptions: any = {
+        videoBitsPerSecond: 2500000 // 2.5 Mbps prevents encoding lag and video stutter
+      };
+      if (selectedMimeType) {
+        recorderOptions.mimeType = selectedMimeType;
+      }
+      const mediaRecorder = new MediaRecorder(combinedStream, recorderOptions);
+      const chunks: Blob[] = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      const downloadPromise = new Promise<void>((resolve, reject) => {
+        mediaRecorder.onstop = () => {
+          try {
+            // Determine the file extension based on what was recorded
+            const isWebm = selectedMimeType.includes('webm');
+            const fileExt = isWebm ? 'webm' : 'mp4';
+            const recordedBlob = new Blob(chunks, { type: isWebm ? 'video/webm' : 'video/mp4' });
+            const compiledUrl = window.URL.createObjectURL(recordedBlob);
+
+            const link = document.createElement('a');
+            link.href = compiledUrl;
+            link.download = `LUSTY-GLOBAL-${hostName.toUpperCase()}-${Date.now()}.${fileExt}`;
+            document.body.appendChild(link);
+            link.click();
+
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(compiledUrl);
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
+        mediaRecorder.onerror = (e) => reject(e);
+      });
+
+      // Reset playback state before start to prevent frame skip / audio drift
+      videoEl.currentTime = 0;
+      videoEl.playbackRate = 1.0;
+
+      // Start recording and start playback
+      mediaRecorder.start();
+      await videoEl.play();
+
+      let lastPercent = -1;
+      let isRecording = true;
+
+      // 7. Render frame-by-frame draw loop
+      const drawFrame = () => {
+        if (!videoEl || !ctx || !isRecording) return;
+
+        // Check if finished
+        if (videoEl.paused || videoEl.ended || videoEl.currentTime >= duration - 0.05) {
+          if (isRecording) {
+            isRecording = false;
+            if (mediaRecorder.state !== 'inactive') {
+              mediaRecorder.stop();
+            }
+          }
+          return;
+        }
+
+        // Draw current video frame to fill canvas
+        ctx.drawImage(videoEl, 0, 0, width, height);
+
+        // Render Watermark Logo if successfully loaded
+        const logoWidth = width * 0.18;
+        const logoHeight = logo.complete && logo.naturalWidth ? (logo.naturalHeight / logo.naturalWidth) * logoWidth : logoWidth;
+        const padding = width * 0.04;
+
+        if (logo.complete && logo.naturalWidth) {
+          ctx.save();
+          ctx.globalAlpha = 1.0;
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+          ctx.shadowBlur = 12;
+          ctx.shadowOffsetX = 4;
+          ctx.shadowOffsetY = 4;
+          ctx.drawImage(logo, width - logoWidth - padding, padding, logoWidth, logoHeight);
+          ctx.restore();
+        }
+
+        // 👑 BAKE "LUSTY GLOBAL VIP" BRANDING + @USERNAME DIRECTLY INTO VIDEO FRAMES
+        drawWatermarkOnCanvas(ctx, width, hostName);
+
+        // Update progress toast (throttled)
+        const percent = Math.min(99, Math.round((videoEl.currentTime / duration) * 100));
+        if (percent !== lastPercent) {
+          lastPercent = percent;
+          toast.loading(`Applying VIP watermark: ${percent}%...`, {
+            id: downloadToastId,
+            style: {
+              background: '#09090b',
+              color: '#f4f4f5',
+              border: '1px solid #27272a'
+            }
+          });
+        }
+      };
+
+      // Frame callback synchronization loop
+      if ('requestVideoFrameCallback' in videoEl) {
+        const updateLoop = () => {
+          drawFrame();
+          if (isRecording && videoEl && !videoEl.ended) {
+            (videoEl as any).requestVideoFrameCallback(updateLoop);
+          }
+        };
+        (videoEl as any).requestVideoFrameCallback(updateLoop);
+      } else {
+        const intervalId = setInterval(() => {
+          if (!isRecording || !videoEl || videoEl.ended) {
+            clearInterval(intervalId);
+          } else {
+            drawFrame();
+          }
+        }, 1000 / 30);
+      }
+
+      // Wait for MediaRecorder to finish writing the file
+      await downloadPromise;
 
       toast.success("Ready! Plays smoothly on all devices.", {
         id: downloadToastId,
@@ -271,8 +535,8 @@ function PlaybackCard({
       });
 
     } catch (error) {
-      console.error("Watermark compilation failed:", error);
-      toast.error("Could not apply watermark. Please check backend logs.", {
+      console.error("Download and watermark failed:", error);
+      toast.error("Could not download the video. Please try again.", {
         id: downloadToastId,
         style: {
           background: '#09090b',
@@ -282,6 +546,22 @@ function PlaybackCard({
       });
     } finally {
       setIsDownloading(false);
+      // Clean up resources
+      if (videoEl) {
+        try {
+          videoEl.pause();
+          document.body.removeChild(videoEl);
+        } catch (_) {}
+      }
+      if (localBlobUrl) {
+        window.URL.revokeObjectURL(localBlobUrl);
+      }
+      if (logoBlobUrl) {
+        window.URL.revokeObjectURL(logoBlobUrl);
+      }
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close().catch(() => {});
+      }
     }
   };
 
@@ -289,20 +569,17 @@ function PlaybackCard({
     <div className="relative aspect-[9/16] w-full rounded-2xl overflow-hidden bg-zinc-950 border border-zinc-800/80 group">
       {/* 📹 Video Playback Element */}
       <video
-        src={video.video_url} 
+        src={getSafeVideoUrl(video.video_url)} 
         className="w-full h-full object-cover"
         loop
         playsInline
+        crossOrigin="anonymous"
         controls={isPlaying} // 🕹️ Shows play/pause/scrub timeline only when playing
         id={`video-${video.id}`}
       />
 
       {/* 🌟 THE OFFICIAL PLATFORM WATERMARK OVERLAY */}
-      <div className="absolute top-10 left-2 z-20 pointer-events-none opacity-40 mix-blend-screen select-none">
-        <p className="font-black text-[8px] tracking-widest text-white uppercase drop-shadow-[0_1.5px_3px_rgba(0,0,0,0.9)] flex items-center gap-0.5">
-          <span className="text-pink-500">👑</span> LUSTY GLOBAL <span className="text-pink-500">VIP</span>
-        </p>
-      </div>
+      <ShortsWatermark username={video.profiles?.username || 'VIP'} />
 
       {/* 🔮 Active Boost indicator */}
       {hasActiveCampaign && (
@@ -375,8 +652,8 @@ function PlaybackCard({
 
           {/* Bottom Video Metrics Row */}
           <div className="flex items-center justify-between text-[10px] text-zinc-300 font-bold backdrop-blur-sm bg-black/30 p-1.5 rounded-xl">
-            <span className="flex items-center gap-1"><Eye className="w-3 h-3 text-zinc-400" /> {views}</span>
-            <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-pink-500 fill-pink-500/20" /> {likes}</span>
+            <span className="flex items-center gap-1"><Eye className="w-3 h-3 text-zinc-400" /> {formatMetricCount(views)}</span>
+            <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-pink-500 fill-pink-500/20" /> {formatMetricCount(likes)}</span>
           </div>
         </div>
       )}

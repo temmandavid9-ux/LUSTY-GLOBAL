@@ -117,47 +117,55 @@ export const COMPANIONS: Companion[] = [
 export const VIDEOS: VideoItem[] = [
   {
     id: 'vid_1',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+    videoUrl: 'https://vtmaffcyvhnnmfibfswm.supabase.co/storage/v1/object/public/videos/shorts/ec698e7c-3885-4d9e-81af-e91e9fa6fc97/1783632687007.mp4',
     creatorId: 'comp_1',
-    caption: 'Midnight neon vibes in the main lounge 💜 Propose a rendezvous in direct messages! #viplounge #nightlife',
+    caption: 'Midnight neon vibes in the main lounge 💜 Propose a rendezvous in direct messages! #viplounge #nightlife [location:London, Mayfair]',
     soundTrack: 'Original sound - VIP Elena',
     likes: 124500, // 124.5k
     views: 1450200, // 1.5m
     isLiked: false,
-    commentsCount: 382
+    commentsCount: 382,
+    location: 'London, Mayfair',
+    city: 'London'
   },
   {
     id: 'vid_2',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    videoUrl: 'https://vtmaffcyvhnnmfibfswm.supabase.co/storage/v1/object/public/videos/shorts/393b5067-999e-4bde-a1bc-1a71e29fa365/1784071450957.mp4',
     creatorId: 'comp_2',
-    caption: 'Warming up before the live show tonight! Grab your front-row passes now 🎫 #dance #performer',
+    caption: 'Warming up before the live show tonight! Grab your front-row passes now 🎫 #dance #performer [location:Miami, South Beach]',
     soundTrack: 'Deep House Beats (Lounge Mix)',
     likes: 85200, // 85.2k
     views: 980500, // 980.5k
     isLiked: true,
-    commentsCount: 142
+    commentsCount: 142,
+    location: 'Miami, South Beach',
+    city: 'Miami'
   },
   {
     id: 'vid_3',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+    videoUrl: 'https://vtmaffcyvhnnmfibfswm.supabase.co/storage/v1/object/public/videos/shorts/0cac9f78-2a47-45f1-b4aa-f8dccdaa343d/1784080441834.mp4',
     creatorId: 'comp_3',
-    caption: 'The look on my face when someone books the VIP package instantly ✨ #satisfying #luxury',
+    caption: 'The look on my face when someone books the VIP package instantly ✨ #satisfying #luxury [location:Paris, Le Marais]',
     soundTrack: 'Natasha Rose - Sunset Chill',
     likes: 1890000, // 1.9m
     views: 2340000, // 2.3m
     isLiked: false,
-    commentsCount: 1982
+    commentsCount: 1982,
+    location: 'Paris, Le Marais',
+    city: 'Paris'
   },
   {
     id: 'vid_4',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+    videoUrl: 'https://vjs.zencdn.net/v/oceans.mp4',
     creatorId: 'comp_4',
-    caption: 'Neon body art session is live. Come watch the magic unfold! 🌌 #bodyart #glow',
+    caption: 'Neon body art session is live. Come watch the magic unfold! 🌌 #bodyart #glow [location:Dubai, Marina]',
     soundTrack: 'Mystic Lounge Soundscapes',
     likes: 9800, // 9.8k
     views: 45600, // 45.6k
     isLiked: false,
-    commentsCount: 54
+    commentsCount: 54,
+    location: 'Dubai, Marina',
+    city: 'Dubai'
   }
 ];
 

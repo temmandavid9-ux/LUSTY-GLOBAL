@@ -1,14 +1,19 @@
 import { useRef, useState, useEffect } from 'react';
+import { getSafeVideoUrl, RELIABLE_FALLBACK_VIDEO } from '../utils/videoUtils';
 
 interface PlayerProps {
   videoUrl: string;
+  poster?: string;
   isActive: boolean; // Managed by the parent list container
 }
 
-export function LoungeVideoPlayer({ videoUrl, isActive }: PlayerProps) {
+export function LoungeVideoPlayer({ videoUrl, poster, isActive }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showIndicator, setShowIndicator] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  const safeUrl = hasError ? RELIABLE_FALLBACK_VIDEO : getSafeVideoUrl(videoUrl);
 
   // 🔄 Handle Auto-Play / Pause when scroll focus shifts
   useEffect(() => {
@@ -49,19 +54,53 @@ export function LoungeVideoPlayer({ videoUrl, isActive }: PlayerProps) {
     >
       <video
         ref={videoRef}
-        src={videoUrl}
+        src={safeUrl}
+        poster={poster}
         loop
         playsInline
-        controls
+        crossOrigin="anonymous"
+        preload="metadata" // Download metadata first to save cellular data and decoding resources
         muted // Muted by default to bypass strict browser auto-play blockers
-        autoPlay // Let the browser assist the IntersectionObserver
+        onError={(e) => {
+          console.warn("Video load failed. Switching to fallback stream.", e);
+          if (!hasError) setHasError(true);
+        }}
         className="w-full h-full object-cover"
       />
 
-      {/* 🌟 THE OFFICIAL PLATFORM WATERMARK OVERLAY */}
-      <div className="absolute top-4 left-4 z-20 pointer-events-none opacity-40 mix-blend-screen select-none">
-        <p className="font-black text-[10px] tracking-widest text-white uppercase drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] flex items-center gap-1 font-mono">
-          <span className="text-pink-500 animate-pulse">👑</span> LUSTY GLOBAL <span className="text-pink-500">VIP</span>
+      {hasError && (
+        <div className="absolute top-3 right-3 bg-rose-950/80 border border-rose-800/50 text-rose-300 text-[10px] px-2.5 py-1 rounded-full font-mono z-20">
+          ⚠️ CDN Source Blocked - Loaded Fallback Stream
+        </div>
+      )}
+
+      {/* 🌟 OFFICIAL PLATFORM WATERMARK OVERLAY */}
+      <div className="absolute top-4 left-4 z-20 pointer-events-none select-none flex items-center gap-2 opacity-75 filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+        <div className="w-5 h-5 shrink-0">
+          <svg viewBox="0 0 100 100" className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <rect
+              x="18"
+              y="18"
+              width="64"
+              height="64"
+              rx="12"
+              transform="rotate(45 50 50)"
+              fill="#090a16"
+              stroke="#d4af37"
+              strokeWidth="4"
+            />
+            <g fill="#d4af37">
+              <polygon points="50,26 53,30 47,30" />
+              <path d="
+                M 35,38 L 40,38 L 40,58 L 54,58 L 54,62 L 35,62 Z 
+                M 65,38 L 59,38 L 50,56 L 46,56 L 43,48 L 48,48 L 50,52 L 58,38 Z
+              " />
+            </g>
+          </svg>
+        </div>
+        
+        <p className="font-extrabold text-[11px] tracking-widest text-white uppercase flex items-center gap-1 font-sans">
+          LUSTY GLOBAL <span className="text-yellow-400 font-mono">VIP</span>
         </p>
       </div>
 

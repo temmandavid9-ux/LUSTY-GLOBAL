@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { ShieldCheck, CreditCard, Lock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ShieldCheck, CreditCard, Lock, Zap } from 'lucide-react';
+import { chargeSavedCardToken, getUserSavedCardToken, SavedCardInfo } from '../lib/chargeLinkedCard';
+import { supabase } from '../lib/supabase';
 
 interface SecurityPaymentGatewayProps {
   amount: number;
@@ -7,15 +9,61 @@ interface SecurityPaymentGatewayProps {
   onPaymentSuccess: () => void;
   onPaymentCancel: () => void;
   title?: string;
+  userId?: string;
 }
 
-export default function SecurityPaymentGateway({ amount, recipientUsername, onPaymentSuccess, onPaymentCancel, title = "Secure Escrow Deposit" }: SecurityPaymentGatewayProps) {
+export default function SecurityPaymentGateway({ amount, recipientUsername, onPaymentSuccess, onPaymentCancel, title = "Secure Escrow Deposit", userId }: SecurityPaymentGatewayProps) {
   const [status, setStatus] = useState<'idle' | 'processing' | 'success'>('idle');
   const [cardName, setCardName] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
   const [error, setError] = useState('');
+  const [savedCard, setSavedCard] = useState<SavedCardInfo | null>(null);
+  const [isChargingToken, setIsChargingToken] = useState(false);
+
+  useEffect(() => {
+    async function loadSavedCard() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const activeUserId = userId || user?.id;
+        if (activeUserId) {
+          const info = await getUserSavedCardToken(activeUserId);
+          if (info) {
+            setSavedCard(info);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load saved card info:', err);
+      }
+    }
+    loadSavedCard();
+  }, [userId]);
+
+  const handleSavedCardDebit = async () => {
+    try {
+      setIsChargingToken(true);
+      setError('');
+      const { data: { user } } = await supabase.auth.getUser();
+      const activeUserId = userId || user?.id || 'guest';
+
+      const res = await chargeSavedCardToken({
+        userId: activeUserId,
+        amountUSD: amount,
+        description: `Escrow Hold of ${amount} for @${recipientUsername}`
+      });
+
+      if (res.success) {
+        setStatus('success');
+      } else {
+        setError(res.message || 'Auto-debit failed. Please enter card details manually.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Saved card charge error.');
+    } finally {
+      setIsChargingToken(false);
+    }
+  };
 
   // 🛠️ Strict Card Formatting Input Controllers
   const handleCardNumberInput = (val: string) => {
@@ -135,6 +183,30 @@ export default function SecurityPaymentGateway({ amount, recipientUsername, onPa
           {error && (
             <div className="bg-red-950/40 border border-red-500/20 text-red-400 text-[10px] py-1.5 px-2.5 rounded-lg font-mono">
               ⚠️ {error}
+            </div>
+          )}
+
+          {savedCard && (
+            <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-3.5 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono uppercase font-bold text-emerald-400 flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5 fill-emerald-400 text-emerald-400 animate-pulse" /> Linked Card Found
+                </span>
+                <span className="text-[10px] font-mono text-zinc-400">{savedCard.cardBrand} •••• {savedCard.last4}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleSavedCardDebit}
+                disabled={isChargingToken}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-extrabold text-xs py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/20"
+              >
+                {isChargingToken ? 'DEBITING SAVED CARD...' : `⚡ INSTANT AUTO-DEBIT ${amount}`}
+              </button>
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-zinc-800"></div>
+                <span className="flex-shrink mx-2 text-[9px] text-zinc-600 uppercase font-mono">Or Manual Card Entry</span>
+                <div className="flex-grow border-t border-zinc-800"></div>
+              </div>
             </div>
           )}
 

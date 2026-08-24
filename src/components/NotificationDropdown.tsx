@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Bell, ShieldCheck, Smartphone } from 'lucide-react';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { subscribeToPushNotifications } from '../utils/usePushNotifications';
 
 interface AppNotification {
   id: string;
@@ -182,7 +183,12 @@ export function NotificationDropdown({ currentUserId }: { currentUserId: string 
                     <button
                       type="button"
                       disabled={pushLoading}
-                      onClick={() => requestPermission()}
+                      onClick={async () => {
+                        const granted = await requestPermission();
+                        if (granted) {
+                          await subscribeToPushNotifications(currentUserId);
+                        }
+                      }}
                       className="w-full py-1.5 px-2.5 bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white font-sans text-[11px] font-black uppercase rounded-lg transition tracking-wide cursor-pointer text-center focus:outline-none"
                     >
                       {pushLoading ? 'Registering...' : 'Link Device Push Alerts'}

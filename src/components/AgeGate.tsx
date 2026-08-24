@@ -1,4 +1,5 @@
 import { ShieldAlert } from 'lucide-react';
+import { LustyGlobalLogo } from './LustyGlobalLogo';
 
 interface AgeGateProps {
   onVerify: () => void;
@@ -18,52 +19,9 @@ export default function AgeGate({ onVerify }: AgeGateProps) {
       <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 text-center relative overflow-hidden shadow-2xl">
         <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-yellow-600 via-yellow-500 to-yellow-700" />
         
-        {/* NEW GOLDEN VIP LOGO - Large Scale */}
-        <div className="flex flex-col items-center gap-5 select-none mb-8">
-          {/* The Golden Globe/Monogram Icon (Increased Size) */}
-          <div className="relative w-28 h-28 flex items-center justify-center">
-            <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_0_20px_rgba(250,204,21,0.25)]">
-              <defs>
-                {/* Liquid Luxury Gold Gradient */}
-                <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#FEF08A" />
-                  <stop offset="50%" stopColor="#EAB308" />
-                  <stop offset="100%" stopColor="#854D0E" />
-                </linearGradient>
-              </defs>
-
-              {/* Outer Ring */}
-              <circle cx="50" cy="50" r="42" stroke="url(#gold-gradient)" strokeWidth="3" fill="none" className="opacity-90" />
-              
-              {/* Inner Orbit Line */}
-              <ellipse cx="50" cy="50" rx="42" ry="14" stroke="url(#gold-gradient)" strokeWidth="1.2" fill="none" transform="rotate(-28 50 50)" className="opacity-50" />
-              
-              {/* Intersecting L & G Monogram */}
-              <text x="32" y="61" fill="url(#gold-gradient)" fontSize="32" fontWeight="900" fontFamily="Georgia, serif" letterSpacing="-2">
-                L
-              </text>
-              <text x="50" y="61" fill="url(#gold-gradient)" fontSize="32" fontWeight="900" fontFamily="Georgia, serif" letterSpacing="-2">
-                G
-              </text>
-              
-              {/* VIP Sparkle Star */}
-              <path d="M50 16 L52 21 L57 21 L53 24 L55 29 L50 26 L45 29 L47 24 L43 21 L48 21 Z" fill="url(#gold-gradient)" />
-            </svg>
-          </div>
-
-          {/* Luxury Typography (Increased Size) */}
-          <div className="flex flex-col items-center leading-tight">
-            <span className="text-zinc-100 font-bold text-xl tracking-[0.35em] uppercase font-sans">
-              Lusty Global
-            </span>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="h-[1px] w-6 bg-yellow-500/50"></span>
-              <span className="text-[12px] text-yellow-500 font-black tracking-[0.5em] uppercase">
-                V I P
-              </span>
-              <span className="h-[1px] w-6 bg-yellow-500/50"></span>
-            </div>
-          </div>
+        {/* OFFICIAL GOLDEN VIP LOGO - Large Scale */}
+        <div className="mb-8 flex justify-center">
+          <LustyGlobalLogo size="lg" />
         </div>
 
         <div className="w-16 h-16 rounded-full bg-zinc-850 flex items-center justify-center mx-auto mb-6 text-yellow-500 border border-yellow-500/20">

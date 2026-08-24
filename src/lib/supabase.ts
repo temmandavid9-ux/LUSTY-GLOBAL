@@ -1,34 +1,28 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
-// Hardcoded verified configuration directly bypassing environment interference
 const supabaseUrl = 'https://vtmaffcyvhnnmfibfswm.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0bWFmZmN5dmhubm1maWJmc3dtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5NjI5NTksImV4cCI6MjA5NzUzODk1OX0.jmTvnNaky2hf8c32-yFXrOlAWd6hX02u5Qa957gt5xk';
 
-// Custom fetch wrapper that catches physical network/fetch failures
-// and resolves them into graceful offline mock responses, completely avoiding
-// unhandled "Failed to fetch" browser exceptions.
 const customFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   try {
-    return await fetch(input, init);
-  } catch (err: any) {
-    console.warn("Intercepted Supabase fetch network failure, returning fallback offline payload:", err);
+    const res = await fetch(input, init);
     
-    const urlStr = typeof input === 'string' ? input : (input instanceof URL ? input.href : (input as any).url || '');
-    let body = '{}';
-    
-    if (urlStr.includes('/auth/v1/session') || urlStr.includes('/auth/v1/user') || urlStr.includes('/auth/v1/token')) {
-      body = JSON.stringify({ data: { session: null, user: null }, error: null });
-    } else if (urlStr.includes('/rest/v1/profiles')) {
-      body = JSON.stringify([]);
-    } else if (urlStr.includes('/rest/v1/posts')) {
-      body = JSON.stringify([]);
-    } else {
-      body = JSON.stringify([]);
+    // Log non-2xx API errors directly to dev console for easy debugging
+    if (!res.ok) {
+      const clonedRes = res.clone();
+      clonedRes.text().then((text) => {
+        console.error(`[Supabase API Error ${res.status}]`, input.toString(), text);
+      }).catch(() => {});
     }
 
-    return new Response(body, {
-      status: 200,
+    return res;
+  } catch (err: any) {
+    // Only catch physical client-side offline / network failure exceptions
+    console.warn("Supabase physical network error:", err);
+    
+    return new Response(JSON.stringify({ error: 'Network offline' }), {
+      status: 503,
       headers: { 'Content-Type': 'application/json' }
     });
   }

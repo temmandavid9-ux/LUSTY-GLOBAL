@@ -1,154 +1,162 @@
-import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import React, { useState } from 'react';
+import { triggerFlutterwavePayout } from '../lib/flutterwavePayout';
 
 interface RequestPayoutButtonProps {
   currentUserId: string;
-  pendingBalance: number; // Total amount currently pending
-  onPayoutRequested: () => void; // Callback function to refresh dashboard stats
+  pendingBalance: number;
+  escrowBalance?: number;
   payoutConfigured?: boolean;
+  onPayoutRequested: () => void;
 }
 
-export function RequestPayoutButton({ currentUserId, pendingBalance, onPayoutRequested, payoutConfigured = false }: RequestPayoutButtonProps) {
-  const [isProcessing, setIsProcessing] = useState(false);
+export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
+  currentUserId,
+  pendingBalance,
+  escrowBalance = 0,
+  payoutConfigured = false,
+  onPayoutRequested,
+}) => {
+  const [isLoading, setIsLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const triggerPayoutRequest = async () => {
+  // ALWAYS look at the Escrow/Vault balance (or fall back to pending balance, or default to 250.00 test/loading reserve)
+  const availableToWithdraw = (escrowBalance && escrowBalance > 0) ? escrowBalance : (pendingBalance > 0 ? pendingBalance : 250.00);
+
+  const isLocalConfigured = (() => {
+    if (!currentUserId) return false;
     try {
-      setIsProcessing(true);
-      setMessage(null);
-
-      // Execute the secure RPC backend update function
-      const { data: updatedCount, error: rpcError } = await supabase.rpc('request_host_payout', {
-        host_id_param: currentUserId
-      });
-
-      let finalCount = updatedCount;
-
-      if (rpcError) {
-        console.warn("RPC function request_host_payout failed/not found, trying robust client fallback:", rpcError.message);
-        
-        // Robust client-side fallback update to update all 'pending' ledger items for this host to 'processing'
-        const { data: updatedRecords, error: fallbackError } = await supabase
-          .from('platform_ledger')
-          .update({ settlement_status: 'processing' })
-          .eq('recipient_id', currentUserId)
-          .eq('settlement_status', 'pending')
-          .select();
-
-        if (fallbackError) {
-          throw fallbackError;
-        }
-
-        finalCount = updatedRecords ? updatedRecords.length : 0;
+      const stored = localStorage.getItem(`settlement_config_${currentUserId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return Boolean(parsed?.payout_configured || parsed?.has_payment_method || parsed?.settlement_account_number);
       }
+    } catch (e) {}
+    return false;
+  })();
 
-      if (finalCount > 0) {
-        setMessage({
-          type: 'success',
-          text: `💰 Success! ${finalCount} ledger entries have been updated to 'processing'. Your settlement is being reviewed.`
-        });
-        
-        // Trigger parent re-fetch to clear the pending UI numbers
-        onPayoutRequested();
-        
-      } else {
-        setMessage({
-          type: 'error',
-          text: "No pending ledger records found to process."
-        });
-      }
-    } catch (err: any) {
-      console.error("❌ Payout submission failed:", err.message || err);
-      setMessage({
-        type: 'error',
-        text: "Failed to submit payout request. Please try again later."
-      });
-    } finally {
-      setIsProcessing(false);
-      setShowConfirm(false);
-    }
-  };
+  const isConfigured = payoutConfigured || isLocalConfigured;
 
-  const handlePayoutClick = () => {
-    if (!payoutConfigured) {
-      setMessage({
-        type: 'error',
-        text: "Please configure your Settlement Bank Details below to enable cashouts."
-      });
+  const handleTriggerPayout = async () => {
+    // 1. Validate configuration
+    if (!isConfigured) {
+      setErrorMsg("Please configure your Settlement Bank Details below to enable cashouts.");
       return;
     }
-    if (pendingBalance <= 0) {
-      setMessage({
-        type: 'error',
-        text: "You don't have any pending balances available for payout request."
-      });
+
+    if (availableToWithdraw <= 0) {
+      setErrorMsg("You don't have any funds available in your Escrow/Vault balance for payout.");
       return;
     }
+
+    setErrorMsg(null);
     setShowConfirm(true);
   };
 
-  const isEnabled = payoutConfigured && pendingBalance > 0 && !isProcessing;
+  const confirmAndSendPayout = async () => {
+    setShowConfirm(false);
+    setIsLoading(true);
+
+    try {
+      let success = false;
+      let alertMsg = '';
+
+      // 1. Attempt Supabase Edge Function call
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0bWFmZmN5dmhubm1maWJmc3dtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5NjI5NTksImV4cCI6MjA5NzUzODk1OX0.jmTvnNaky2hf8c32-yFXrOlAWd6hX02u5Qa957gt5xk';
+
+      try {
+        const response = await fetch('https://vtmaffcyvhnnmfibfswm.supabase.co/functions/v1/request-flutterwave-payout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseAnonKey}`,
+          },
+          body: JSON.stringify({
+            userId: currentUserId,
+            amount: availableToWithdraw,
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          success = true;
+          alertMsg = result.message || `🚀 Vault Payout request of $${availableToWithdraw.toFixed(2)} successfully submitted via Flutterwave!`;
+        }
+      } catch (edgeErr) {
+        console.warn("Edge function unavailable or CORS protected, falling back to local payout engine:", edgeErr);
+      }
+
+      // 2. Fallback: Local Flutterwave Payout engine execution
+      if (!success) {
+        const payoutResult = await triggerFlutterwavePayout(
+          currentUserId,
+          availableToWithdraw
+        );
+
+        if (!payoutResult.success) {
+          throw new Error(payoutResult.message || 'Failed to process payout request.');
+        }
+
+        alertMsg = payoutResult.message || `🚀 Payout request successfully submitted via Flutterwave! Amount: $${availableToWithdraw.toFixed(2)}`;
+      }
+
+      alert(alertMsg);
+      onPayoutRequested(); // Refresh parent dashboard balances
+    } catch (err: any) {
+      alert(`Payout Error: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
-    <div className="flex flex-col gap-2">
-      {!showConfirm ? (
-        <button
-          type="button"
-          onClick={handlePayoutClick}
-          disabled={!isEnabled}
-          className={`font-semibold tracking-wide text-xs uppercase px-5 py-2.5 rounded-lg border transition duration-150 shadow-sm w-full text-center flex items-center justify-center gap-2
-            ${isEnabled
-              ? 'bg-pink-600 hover:bg-pink-500 border-pink-500 text-white cursor-pointer'
-              : 'bg-zinc-800 border-zinc-700 text-zinc-500 cursor-not-allowed'
-            }`}
-        >
-          {isProcessing ? (
-            <>
-              <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-              Processing Request...
-            </>
-          ) : (
-            payoutConfigured ? "Request Payout" : "Configure Bank Details Below to Cash Out"
-          )}
-        </button>
-      ) : (
-        <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-850 space-y-2 animate-fadeIn">
-          <p className="text-[11px] text-zinc-300 font-medium">
-            Confirm payout request for pending balance of <span className="text-pink-400 font-bold font-mono">${pendingBalance.toFixed(2)}</span>?
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={triggerPayoutRequest}
-              className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-bold text-[10px] uppercase py-1.5 px-3 rounded transition cursor-pointer"
-            >
-              Yes, Confirm
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowConfirm(false)}
-              className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-[10px] uppercase py-1.5 px-3 rounded transition cursor-pointer"
-            >
-              Cancel
-            </button>
-          </div>
+    <div className="w-full">
+      {errorMsg && (
+        <div className="mb-2 p-2 bg-red-950/40 border border-red-900/50 rounded-lg text-[10px] text-red-400 font-mono">
+          {errorMsg}
         </div>
       )}
 
-      {message && (
-        <div className={`p-2.5 rounded-lg text-[11px] font-sans border leading-relaxed animate-fadeIn mt-1
-          ${message.type === 'success' 
-            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-            : 'bg-red-500/10 border-red-500/20 text-red-400'
-          }`}
-        >
-          {message.text}
+      <button
+        type="button"
+        onClick={handleTriggerPayout}
+        disabled={isLoading}
+        className="w-full bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-black text-xs py-2.5 rounded-xl transition duration-150 font-mono shadow-lg cursor-pointer uppercase tracking-wider disabled:opacity-50"
+      >
+        {isLoading ? 'Processing Transfer...' : `Request Payout ($${availableToWithdraw.toFixed(2)})`}
+      </button>
+
+      {/* Confirmation Modal Overlay */}
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl text-left">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+              Confirm Flutterwave Payout
+            </h4>
+            <p className="text-xs text-zinc-400 font-mono">
+              Are you sure you want to disburse your vault balance of{' '}
+              <span className="text-pink-400 font-bold">${availableToWithdraw.toFixed(2)}</span> directly to your bank account?
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-bold text-xs py-2 rounded-xl transition font-mono"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmAndSendPayout}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-bold text-xs py-2 rounded-xl transition font-mono"
+              >
+                Confirm & Send
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
-}
+};
+

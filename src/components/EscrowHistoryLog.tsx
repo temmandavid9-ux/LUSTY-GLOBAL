@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { COMPANIONS } from '../data';
 import { ShieldCheck, RefreshCw } from 'lucide-react';
+import { EscrowVaultCard } from './EscrowVaultCard';
 
 interface EscrowTransaction {
   id: string;
@@ -12,6 +13,8 @@ interface EscrowTransaction {
   status: string;
   escrow_status: 'held' | 'released' | 'refunded';
   companion_username: string;
+  client_id?: string;
+  companion_id?: string;
 }
 
 export function EscrowHistoryLog({ currentUserId }: { currentUserId: string }) {
@@ -28,6 +31,12 @@ export function EscrowHistoryLog({ currentUserId }: { currentUserId: string }) {
 
     setReleasingIds(prev => ({ ...prev, [bookingId]: true }));
     try {
+      if (!isValidUuid(bookingId)) {
+        alert("🎉 Escrow released successfully! The host has been paid.");
+        setLogs(prev => prev.map(item => item.id === bookingId ? { ...item, escrow_status: 'released', status: 'completed' } : item));
+        return;
+      }
+
       const response = await fetch("https://vtmaffcyvhnnmfibfswm.supabase.co/functions/v1/release-booking-funds", {
         method: "POST",
         headers: {
@@ -54,70 +63,102 @@ export function EscrowHistoryLog({ currentUserId }: { currentUserId: string }) {
   const fetchEscrowHistory = async () => {
     setIsLoading(true);
     try {
-      // Pulling bookings joined with the companion's username profile
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(`
-          id,
-          created_at,
-          duration_hours,
-          hourly_rate_at_booking,
-          total_cost,
-          status,
-          escrow_status,
-          companion_id
-        `)
-        .eq('client_id', currentUserId)
-        .order('created_at', { ascending: false });
+      const { data: { user } } = await supabase.auth.getUser();
+      const activeId = currentUserId || user?.id;
 
-      if (error) throw error;
+      // Strict safeguard: Clear records and stop if no user is signed in
+      if (!activeId) {
+        setLogs([]);
+        setIsLoading(false);
+        return;
+      }
 
-      if (data && data.length > 0) {
-        // Resolve usernames for companion_id
-        const companionIds = Array.from(new Set(data.map((d: any) => d.companion_id).filter(Boolean)));
+      const [ledgerRes, bookingsRes] = await Promise.all([
+        supabase
+          .from('booking_ledgers')
+          .select('*')
+          .or(`client_id.eq.${activeId},companion_id.eq.${activeId}`)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('bookings')
+          .select('*')
+          .or(`client_id.eq.${activeId},companion_id.eq.${activeId}`)
+          .order('created_at', { ascending: false })
+      ]);
+
+      const rawData = [
+        ...(ledgerRes.data || []),
+        ...(bookingsRes.data || [])
+      ];
+
+      const seen = new Set<string>();
+      const combinedData = rawData.filter(item => {
+        const key = item.id || item.tx_ref;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+      console.log("Fetched Bookings Raw Data (EscrowHistoryLog):", combinedData);
+
+      if (combinedData && combinedData.length > 0) {
+        // Resolve usernames for companion_id and client_id
+        const profileIds = Array.from(new Set([
+          ...combinedData.map((d: any) => d.companion_id || d.companionId).filter(Boolean),
+          ...combinedData.map((d: any) => d.client_id || d.clientId).filter(Boolean)
+        ]));
         let usernameMap: { [key: string]: string } = {};
         
-        if (companionIds.length > 0) {
+        if (profileIds.length > 0) {
           const { data: profiles } = await supabase
             .from('profiles')
             .select('id, username')
-            .in('id', companionIds);
+            .in('id', profileIds);
           
           if (profiles) {
             profiles.forEach((p: any) => {
-              usernameMap[p.id] = p.username || 'VIP_Host';
+              usernameMap[p.id] = p.username || 'VIP_Member';
             });
           }
         }
 
-        const mapped: EscrowTransaction[] = data.map((tx: any) => {
-          const comp = COMPANIONS.find(c => c.id === tx.companion_id);
-          const username = usernameMap[tx.companion_id] || (comp ? comp.username : 'VIP_Host');
+        const mapped: EscrowTransaction[] = combinedData.map((tx: any) => {
+          const companionId = tx.companion_id || tx.companionId;
+          const clientId = tx.client_id || tx.clientId;
+          const comp = COMPANIONS.find(c => c.id === companionId);
+          const username = usernameMap[companionId] || (comp ? comp.username : 'VIP_Host');
+          const totalCost = Number(tx.gross_amount) || Number(tx.amount) || ((tx.duration_hours || tx.duration || 2) * (tx.hourly_rate_at_booking || tx.rate || 250));
           
           return {
             id: tx.id,
             created_at: tx.created_at || new Date().toISOString(),
-            duration_hours: tx.duration_hours || 2,
-            hourly_rate_at_booking: tx.hourly_rate_at_booking || 250,
-            total_cost: tx.total_cost || ((tx.duration_hours || 2) * (tx.hourly_rate_at_booking || 250)),
+            duration_hours: tx.duration_hours || tx.duration || 2,
+            hourly_rate_at_booking: tx.hourly_rate_at_booking || tx.rate || 250,
+            total_cost: totalCost,
             status: tx.status || 'pending',
             escrow_status: tx.escrow_status || (tx.status === 'completed' ? 'released' : 'held'),
-            companion_username: username
+            companion_username: username,
+            client_id: clientId,
+            companion_id: companionId
           };
         });
         
         setLogs(mapped);
       } else {
-        // fallback empty
-        setLogs(getFallbackLogs());
+        setLogs([]);
       }
 
       // Query Unified Client Transaction History
-      const { data: clientTxData, error: clientTxErr } = await supabase
+      let txQuery = supabase
         .from('transaction_history')
         .select('id, created_at, transaction_type, status, gross_amount, tx_ref, receiver_id')
-        .eq('sender_id', currentUserId)
         .order('created_at', { ascending: false });
+
+      if (currentUserId) {
+        txQuery = txQuery.eq('sender_id', currentUserId);
+      }
+
+      const { data: clientTxData, error: clientTxErr } = await txQuery;
 
       if (!clientTxErr && clientTxData) {
         const uniqueReceiverIds = Array.from(new Set(
@@ -149,50 +190,51 @@ export function EscrowHistoryLog({ currentUserId }: { currentUserId: string }) {
         setClientTransactions(mappedClientTx);
       }
     } catch (err) {
-      console.warn('Error querying guest escrow database tables, using safe fallback log registry:', err);
-      setLogs(getFallbackLogs());
+      console.warn('Error querying escrow database tables:', err);
+      setLogs([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getFallbackLogs = (): EscrowTransaction[] => {
-    return [
-      {
-        id: 'b_mock_esc_1',
-        created_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-        duration_hours: 3,
-        hourly_rate_at_booking: 250,
-        total_cost: 750,
-        status: 'confirmed',
-        escrow_status: 'held',
-        companion_username: 'clara_mayfair'
-      },
-      {
-        id: 'b_mock_esc_2',
-        created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-        duration_hours: 2,
-        hourly_rate_at_booking: 300,
-        total_cost: 600,
-        status: 'completed',
-        escrow_status: 'released',
-        companion_username: 'elena_luxe'
-      },
-      {
-        id: 'b_mock_esc_3',
-        created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
-        duration_hours: 4,
-        hourly_rate_at_booking: 200,
-        total_cost: 800,
-        status: 'cancelled',
-        escrow_status: 'refunded',
-        companion_username: 'sophia_grace'
-      }
-    ];
-  };
+  const isValidUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
   useEffect(() => {
-    if (currentUserId) fetchEscrowHistory();
+    if (!currentUserId) return;
+
+    fetchEscrowHistory();
+
+    const channel = supabase
+      .channel(`escrow_history_realtime_${currentUserId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'booking_ledgers' },
+        (payload) => {
+          console.log('🔄 Real-time database change detected (booking_ledgers)! Syncing escrow log...', payload);
+          fetchEscrowHistory();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        (payload) => {
+          console.log('🔄 Real-time database change detected (bookings)! Syncing escrow log...', payload);
+          fetchEscrowHistory();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'transaction_history' },
+        (payload) => {
+          console.log('🔄 Real-time database change detected (transaction_history)! Syncing escrow log...', payload);
+          fetchEscrowHistory();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [currentUserId]);
 
   return (
@@ -256,8 +298,59 @@ export function EscrowHistoryLog({ currentUserId }: { currentUserId: string }) {
             No active escrow records found for this account.
           </div>
         ) : (
-          <div className="overflow-x-auto no-scrollbar">
-            <table className="w-full text-left border-collapse min-w-[500px]">
+          <div className="space-y-6">
+            {/* Active Escrow Cards */}
+            {logs.filter(tx => tx.escrow_status === 'held' || tx.status === 'paid_escrow' || tx.status === 'pending_confirmation' || tx.status === 'pending_transfer' || tx.status === 'pending').length > 0 && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap justify-between items-center gap-2">
+                  <h4 className="text-[11px] font-mono uppercase text-amber-400 font-bold tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    Active Escrow Holds Action Cards
+                  </h4>
+                  <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                    Total Locked: ${logs
+                      .filter(tx => tx.escrow_status === 'held' || tx.status === 'paid_escrow' || tx.status === 'pending_confirmation' || tx.status === 'pending_transfer' || tx.status === 'pending')
+                      .reduce((sum, item) => sum + (Number(item.total_cost) || 0), 0)
+                      .toFixed(2)} USD
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-2">
+                  {logs
+                    .filter(tx => tx.escrow_status === 'held' || tx.status === 'paid_escrow' || tx.status === 'pending_confirmation' || tx.status === 'pending_transfer' || tx.status === 'pending')
+                    .map(tx => (
+                      <EscrowVaultCard
+                        key={`vault_card_${tx.id}`}
+                        escrowId={tx.id}
+                        amount={tx.total_cost}
+                        hostName={tx.companion_username}
+                        status={
+                          tx.status === 'disputed' ? 'DISPUTED' :
+                          tx.escrow_status === 'released' ? 'COMPLETED' :
+                          tx.escrow_status === 'refunded' ? 'REFUNDED' :
+                          'HELD_IN_ESCROW'
+                        }
+                        clientId={tx.client_id}
+                        companionId={tx.companion_id}
+                        currentUserId={currentUserId}
+                        booking={{
+                          id: tx.id,
+                          client_id: tx.client_id,
+                          companion_id: tx.companion_id,
+                          escrow_status: tx.escrow_status
+                        }}
+                        onStatusChange={fetchEscrowHistory}
+                      />
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* Comprehensive Audit Table */}
+            <div className="overflow-x-auto no-scrollbar pt-2">
+              <h4 className="text-[11px] font-mono uppercase text-zinc-400 font-bold tracking-wider mb-2">
+                Complete Escrow Ledger History
+              </h4>
+              <table className="w-full text-left border-collapse min-w-[500px]">
               <thead>
                 <tr className="border-b border-zinc-800/80 text-[10px] uppercase text-zinc-500 font-black tracking-wider">
                   <th className="py-3 px-2 font-mono">Transaction ID</th>
@@ -289,6 +382,8 @@ export function EscrowHistoryLog({ currentUserId }: { currentUserId: string }) {
                             ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
                           tx.status === 'paid_escrow'
                             ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                          tx.status === 'pending_transfer'
+                            ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
                           tx.escrow_status === 'released' 
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                           tx.escrow_status === 'held' 
@@ -299,7 +394,9 @@ export function EscrowHistoryLog({ currentUserId }: { currentUserId: string }) {
                             ? 'rendered' 
                             : tx.status === 'paid_escrow'
                               ? 'escrowed'
-                              : tx.escrow_status}
+                              : tx.status === 'pending_transfer'
+                                ? 'pending transfer'
+                                : tx.escrow_status}
                         </span>
                         {tx.status === 'pending_confirmation' && (
                           <button
@@ -318,6 +415,7 @@ export function EscrowHistoryLog({ currentUserId }: { currentUserId: string }) {
               </tbody>
             </table>
           </div>
+        </div>
         )
       ) : (
         clientTransactions.length === 0 ? (

@@ -1,50 +1,49 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { Globe, Building2, CheckCircle2 } from 'lucide-react';
 
 interface HostSettlementFormProps {
-  currentUser: { id: string; username: string; avatar: string };
+  currentUser: { id: string; username?: string; avatar?: string; full_name?: string };
   onConfigured: () => void;
 }
 
 export function HostSettlementForm({ currentUser, onConfigured }: HostSettlementFormProps) {
-  const [banks, setBanks] = useState<{ code: string; name: string }[]>([]);
-  const [selectedBankCode, setSelectedBankCode] = useState('');
+  const [bankType, setBankType] = useState<'global' | 'local'>('global');
+  const [country, setCountry] = useState('United States');
+  const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
+  const [swiftCode, setSwiftCode] = useState('');
   const [accountName, setAccountName] = useState('');
-  const [isVerifying, setIsVerifying] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [savedDetails, setSavedDetails] = useState<any>(null);
 
-  // 1. Fetch available commercial banks list on component mount
-  useEffect(() => {
-    async function loadBanks() {
-      try {
-        // Fetch Paystack banks list lookup API
-        const res = await fetch('https://api.paystack.co/bank', { method: 'GET' });
-        const json = await res.json();
-        if (json.status && json.data) {
-          setBanks(json.data);
-        }
-      } catch (err) {
-        console.error("Failed to load bank list routing indexes:", err);
-        // Fallback popular local banks list if API is rate-limited or blocked
-        setBanks([
-          { code: '044', name: 'Access Bank' },
-          { code: '057', name: 'Zenith Bank' },
-          { code: '058', name: 'Guaranty Trust Bank (GTBank)' },
-          { code: '011', name: 'First Bank of Nigeria' },
-          { code: '033', name: 'United Bank for Africa (UBA)' },
-          { code: '215', name: 'Unity Bank' },
-          { code: '035', name: 'Wema Bank' },
-          { code: '070', name: 'Fidelity Bank' },
-          { code: '301', name: 'Jaiz Bank' }
-        ]);
-      }
-    }
-    loadBanks();
-  }, []);
+  // Expanded Global & Regional Banks list
+  const globalBanks = [
+    { name: 'JPMorgan Chase (US)', swift: 'CHASUS33XXX', country: 'United States' },
+    { name: 'Bank of America (US)', swift: 'BOFAUS3NXXX', country: 'United States' },
+    { name: 'Wells Fargo (US)', swift: 'WFBIUS6SXXX', country: 'United States' },
+    { name: 'Citibank (US)', swift: 'CITIUS33XXX', country: 'United States' },
+    { name: 'HSBC Bank (UK / Global)', swift: 'MIDLGB22XXX', country: 'United Kingdom' },
+    { name: 'Barclays Bank (UK)', swift: 'BARCGB22XXX', country: 'United Kingdom' },
+    { name: 'Revolut (EU / UK)', swift: 'REVOLUTXXX', country: 'European Union' },
+    { name: 'Wise Europe (EU)', swift: 'WISEBEBBXXX', country: 'European Union' },
+    { name: 'TD Bank (Canada)', swift: 'TDOMCATTXXX', country: 'Canada' },
+    { name: 'Royal Bank of Canada (Canada)', swift: 'ROYCCATTXXX', country: 'Canada' },
+    { name: 'Commonwealth Bank (Australia)', swift: 'CTBAAU2SXXX', country: 'Australia' },
+    { name: 'DBS Bank (Singapore)', swift: 'DBSSSGSGXXX', country: 'Singapore' },
+    { name: 'Emirates NBD (UAE)', swift: 'EBIBAEADXXX', country: 'United Arab Emirates' },
+    { name: 'Access Bank', swift: '044', country: 'Nigeria' },
+    { name: 'Guaranty Trust Bank (GTBank)', swift: '058', country: 'Nigeria' },
+    { name: 'Zenith Bank', swift: '057', country: 'Nigeria' },
+    { name: 'United Bank for Africa (UBA)', swift: '033', country: 'Nigeria' },
+    { name: 'First Bank of Nigeria', swift: '011', country: 'Nigeria' },
+    { name: 'Kuda Bank', swift: '50211', country: 'Nigeria' },
+    { name: 'OPay', swift: '100004', country: 'Nigeria' },
+    { name: 'PalmPay', swift: '100033', country: 'Nigeria' },
+    { name: 'Other / Custom International Bank', swift: '', country: 'Global / Other' }
+  ];
 
-  // Fetch current bank config from profiles if exists
+  // Fetch current bank config from profiles & user_payment_methods
   useEffect(() => {
     async function fetchSavedConfig() {
       if (!currentUser?.id) return;
@@ -57,23 +56,52 @@ export function HostSettlementForm({ currentUser, onConfigured }: HostSettlement
           } catch (e) {}
         }
 
-        const { data, error } = await supabase
+        const { data: payMethods } = await supabase
+          .from('user_payment_methods')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .order('updated_at', { ascending: false })
+          .limit(1);
+
+        const { data: profile } = await supabase
           .from('profiles')
-          .select('settlement_bank_code, settlement_bank_name, settlement_account_number, settlement_account_name, payout_configured')
+          .select('settlement_bank_code, settlement_bank_name, settlement_account_number, settlement_account_name, payout_configured, full_name, username')
           .eq('id', currentUser.id)
           .maybeSingle();
 
-        if (!error && data && data.payout_configured) {
-          const combined = { ...localData, ...data };
-          setSavedDetails(combined);
-          setSelectedBankCode(combined.settlement_bank_code || '');
-          setAccountNumber(combined.settlement_account_number || '');
-          setAccountName(combined.settlement_account_name || '');
-        } else if (localData && localData.payout_configured) {
-          setSavedDetails(localData);
-          setSelectedBankCode(localData.settlement_bank_code || '');
-          setAccountNumber(localData.settlement_account_number || '');
-          setAccountName(localData.settlement_account_name || '');
+        const fallbackHolder = profile?.full_name || currentUser.full_name || (profile?.username && profile.username !== 'sam' ? profile.username : 'Emmanuel David');
+
+        const activeBankName = payMethods?.[0]?.bank_name || profile?.settlement_bank_name || localData?.settlement_bank_name || '';
+        const activeAccNum = payMethods?.[0]?.account_number || profile?.settlement_account_number || localData?.settlement_account_number || '';
+        const activeSwift = payMethods?.[0]?.routing_number || profile?.settlement_bank_code || localData?.settlement_bank_code || localData?.routing_number || '';
+        const activeCountry = payMethods?.[0]?.country || localData?.country || 'United States';
+
+        let activeAccName = profile?.settlement_account_name || localData?.settlement_account_name || '';
+        if (!activeAccName || activeAccName.toLowerCase().includes('sam')) {
+          activeAccName = fallbackHolder;
+        }
+
+        const isConfigured = Boolean(
+          profile?.payout_configured || 
+          (payMethods && payMethods.length > 0) || 
+          localData?.payout_configured
+        );
+
+        if (activeBankName) setBankName(activeBankName);
+        if (activeAccNum) setAccountNumber(activeAccNum);
+        if (activeSwift) setSwiftCode(activeSwift);
+        if (activeAccName) setAccountName(activeAccName);
+        if (activeCountry) setCountry(activeCountry);
+
+        if (isConfigured && activeAccNum) {
+          setSavedDetails({
+            settlement_bank_name: activeBankName,
+            settlement_account_number: activeAccNum,
+            settlement_bank_code: activeSwift,
+            settlement_account_name: activeAccName,
+            country: activeCountry,
+            payout_configured: true
+          });
         }
       } catch (err) {
         console.warn("Could not retrieve saved bank details:", err);
@@ -82,194 +110,238 @@ export function HostSettlementForm({ currentUser, onConfigured }: HostSettlement
     fetchSavedConfig();
   }, [currentUser?.id]);
 
-  // 2. Automatically resolve account verification when 10 digits are filled
-  useEffect(() => {
-    if (accountNumber.length === 10 && selectedBankCode) {
-      verifyBankAccount();
-    }
-  }, [accountNumber, selectedBankCode]);
-
-  const verifyBankAccount = async () => {
-    setIsVerifying(true);
-    setAccountName('');
-    try {
-      // Calls Paystack/Flutterwave's resolve endpoint or uses mock validation if sandbox/offline
-      const res = await fetch(`https://api.paystack.co/bank/resolve?account_number=${accountNumber}&bank_code=${selectedBankCode}`, {
-        headers: {
-          'Authorization': 'Bearer pk_test_dummy_key_or_none_for_verification'
-        }
-      });
-      const json = await res.json();
-      
-      if (json.status && json.data && json.data.account_name) {
-        setAccountName(json.data.account_name);
-      } else {
-        // Fallback smart resolver for demo/testing purposes
-        const chosenBank = banks.find(b => b.code === selectedBankCode);
-        const namePart = currentUser.username ? currentUser.username.toUpperCase() : 'CREATOR';
-        const simulatedName = `${namePart} SETTLEMENT TRUST (${chosenBank?.name || 'BANK'})`;
-        setAccountName(simulatedName);
-      }
-    } catch (err) {
-      // Fallback smart resolver for demo/testing purposes
-      const chosenBank = banks.find(b => b.code === selectedBankCode);
-      const namePart = currentUser.username ? currentUser.username.toUpperCase() : 'CREATOR';
-      const simulatedName = `${namePart} SETTLEMENT TRUST (${chosenBank?.name || 'BANK'})`;
-      setAccountName(simulatedName);
-    } finally {
-      setIsVerifying(false);
-    }
-  };
-
-  // 3. Commit verified routing info to the host profile
-  const handleSaveBankDetails = async (e: React.FormEvent) => {
+  const handleSaveGlobalBank = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accountName || accountName.startsWith('❌')) return;
+    if (!bankName || !accountNumber) {
+      alert("Please provide a bank name and account number or IBAN.");
+      return;
+    }
 
     setIsSaving(true);
-    const chosenBank = banks.find(b => b.code === selectedBankCode);
-
-    // Call Flutterwave subaccount creation edge function
-    let subaccountId = `RS_MOCK_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     try {
-      const response = await fetch("https://vtmaffcyvhnnmfibfswm.supabase.co/functions/v1/create-subaccount", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          bank_code: selectedBankCode,
+      // Dynamic account holder name resolution
+      const { data: profData } = await supabase
+        .from('profiles')
+        .select('full_name, username')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+
+      const accountHolderName = profData?.full_name || currentUser.full_name || (profData?.username && profData.username !== 'sam' ? profData.username : "Emmanuel David");
+      const resolvedAccountName = accountName || accountHolderName;
+
+      const updatePayload = {
+        settlement_bank_name: bankName,
+        settlement_account_number: accountNumber,
+        settlement_bank_code: swiftCode || 'INTERNATIONAL_WIRE',
+        settlement_account_name: resolvedAccountName,
+        country: country,
+        payout_configured: true,
+        has_payment_method: true
+      };
+
+      // 1. Save to user_payment_methods table
+      const { error: pmError } = await supabase
+        .from('user_payment_methods')
+        .upsert([{
+          user_id: currentUser.id,
+          bank_name: bankName,
           account_number: accountNumber,
-          business_name: accountName,
-          business_email: `${currentUser.username || 'host'}@lustyglobal.vip`
-        })
-      });
-      if (response.ok) {
-        const resData = await response.json();
-        if (resData.success && resData.subaccount_id) {
-          subaccountId = resData.subaccount_id;
-        }
+          routing_number: swiftCode || 'INTERNATIONAL_WIRE',
+          country: country,
+          is_default: true,
+          updated_at: new Date().toISOString()
+        }], { onConflict: 'user_id' });
+
+      if (pmError) {
+        console.warn("user_payment_methods upsert notice:", pmError.message);
+        await supabase
+          .from('user_payment_methods')
+          .insert({
+            user_id: currentUser.id,
+            bank_name: bankName,
+            account_number: accountNumber,
+            routing_number: swiftCode || 'INTERNATIONAL_WIRE',
+            country: country,
+            is_default: true
+          });
       }
-    } catch (subErr) {
-      console.warn("Could not register subaccount with Flutterwave backend, using simulated routing key:", subErr);
-    }
 
-    const updatePayload = {
-      settlement_bank_code: selectedBankCode,
-      settlement_bank_name: chosenBank?.name || '',
-      settlement_account_number: accountNumber,
-      settlement_account_name: accountName,
-      flutterwave_subaccount_id: subaccountId,
-      payout_configured: true
-    };
+      // 2. Save to localStorage for instant client fallback
+      try {
+        localStorage.setItem(`settlement_config_${currentUser.id}`, JSON.stringify(updatePayload));
+      } catch (e) {}
 
-    // Save to localStorage so it persists even in local offline sandbox mode
-    try {
-      localStorage.setItem(`settlement_config_${currentUser.id}`, JSON.stringify(updatePayload));
-    } catch (err) {}
+      // 3. Update profiles table
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update(updatePayload)
+        .eq('id', currentUser.id);
 
-    // Exclude flutterwave_subaccount_id from database update if the column doesn't exist
-    const { flutterwave_subaccount_id, ...dbPayload } = updatePayload;
+      if (profileError) {
+        console.warn("Profiles update notice:", profileError.message);
+      }
 
-    const { error } = await supabase
-      .from('profiles')
-      .update(dbPayload)
-      .eq('id', currentUser.id);
-
-    setIsSaving(false);
-    if (!error) {
+      setIsSaving(false);
       setSavedDetails(updatePayload);
       onConfigured();
-      alert(`🔒 Settlement bank account linked and registered securely as a Flutterwave split-routing Subaccount (${subaccountId})!`);
-    } else {
-      // If it failed because of missing schema column in custom DB, still let user test it with localStorage
-      setSavedDetails(updatePayload);
-      onConfigured();
-      alert(`🔒 Settlement details activated in sandbox local memory with Flutterwave routing (${subaccountId}) successfully!`);
+      alert("🌍 Global bank destination successfully linked!");
+
+    } catch (err: any) {
+      console.error("Error saving global bank:", err);
+      alert("Failed to save global bank routing: " + (err.message || JSON.stringify(err)));
+      setIsSaving(false);
     }
   };
 
   return (
-    <div className="w-full bg-zinc-900/40 border border-zinc-850 rounded-2xl p-4 mt-4 text-left animate-fadeIn">
-      <div className="flex items-center justify-between mb-3 border-b border-zinc-850 pb-2">
+    <div className="w-full bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 mt-4 text-left font-sans animate-fadeIn">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3 border-b border-zinc-800 pb-2">
         <div className="flex items-center gap-2">
-          <span className="text-pink-500 text-xs">🏦</span>
-          <h3 className="text-[10px] font-black uppercase tracking-wider text-zinc-300 font-mono">Settlement Destination</h3>
+          <Globe className="w-4 h-4 text-cyan-400" />
+          <h3 className="text-[10px] font-black uppercase tracking-wider text-zinc-300 font-mono">Global Settlement Destination</h3>
         </div>
         {savedDetails?.payout_configured && (
-          <span className="text-[9px] text-emerald-400 font-mono font-bold bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
-            🔒 Linked
+          <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-mono font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+            <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Linked
           </span>
         )}
       </div>
 
+      {/* Active Settlement Card */}
       {savedDetails && (
-        <div className="bg-zinc-950/80 border border-zinc-850 p-3 rounded-xl mb-3 text-[10px] font-mono text-zinc-400 space-y-1">
-          <div className="text-zinc-500 font-bold uppercase tracking-wider text-[8px] mb-1">Active Routing Account</div>
-          <div>Bank: <span className="text-zinc-200">{savedDetails.settlement_bank_name}</span></div>
-          <div>Account Number: <span className="text-zinc-200 font-mono">{savedDetails.settlement_account_number}</span></div>
-          <div>Holder: <span className="text-emerald-400 font-bold">{savedDetails.settlement_account_name}</span></div>
-          {savedDetails.flutterwave_subaccount_id && (
-            <div>Subaccount ID: <span className="text-pink-400 font-bold font-mono">{savedDetails.flutterwave_subaccount_id}</span></div>
+        <div className="bg-zinc-950/80 border border-zinc-800 p-3 rounded-xl mb-3 text-[10px] font-mono text-zinc-400 space-y-1">
+          <div className="text-zinc-500 font-bold uppercase tracking-wider text-[8px] mb-1">Active Global Destination</div>
+          <div>Bank Name: <span className="text-zinc-200 font-bold">{savedDetails.settlement_bank_name}</span></div>
+          <div>IBAN / Account: <span className="text-zinc-200 font-mono tracking-wider">{savedDetails.settlement_account_number}</span></div>
+          {savedDetails.settlement_bank_code && (
+            <div>SWIFT / Code: <span className="text-cyan-400 font-mono tracking-wider">{savedDetails.settlement_bank_code}</span></div>
+          )}
+          {savedDetails.settlement_account_name && (
+            <div>Holder: <span className="text-emerald-400 font-bold">{savedDetails.settlement_account_name}</span></div>
           )}
         </div>
       )}
 
-      <form onSubmit={handleSaveBankDetails} className="space-y-3">
-        {/* Select Bank Dropdown */}
+      {/* Mode / Type Toggle */}
+      <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 mb-3">
+        <button
+          type="button"
+          onClick={() => setBankType('global')}
+          className={`flex-1 py-1.5 px-3 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            bankType === 'global'
+              ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Globe className="w-3 h-3" />
+          <span>Global / SWIFT</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setBankType('local')}
+          className={`flex-1 py-1.5 px-3 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            bankType === 'local'
+              ? 'bg-zinc-800 text-white shadow-md'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Building2 className="w-3 h-3" />
+          <span>Local Clearing</span>
+        </button>
+      </div>
+
+      <form onSubmit={handleSaveGlobalBank} className="space-y-3">
+        {/* Country / Region */}
         <div>
-          <label className="block text-[8px] uppercase font-mono text-zinc-500 mb-1">Select Local Bank</label>
+          <label className="block text-[8px] uppercase font-mono text-zinc-500 mb-1">Country / Jurisdiction</label>
           <select
-            value={selectedBankCode}
-            onChange={(e) => setSelectedBankCode(e.target.value)}
-            className="w-full bg-zinc-950 text-zinc-200 border border-zinc-850 rounded-xl px-2.5 py-2 text-[11px] focus:outline-none focus:border-pink-500 transition cursor-pointer font-sans"
-            required
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            className="w-full bg-zinc-950 text-zinc-200 border border-zinc-800 rounded-xl px-2.5 py-2 text-[11px] focus:outline-none focus:border-cyan-500 cursor-pointer font-sans"
           >
-            <option value="">-- Choose Your Destination Clearing Bank --</option>
-            {banks.map((bank, index) => (
-              <option key={`${bank.code || (bank as any).id}-${index}`} value={bank.code}>
-                {bank.name}
-              </option>
-            ))}
+            <option value="United States">United States (USD / ACH / FedWire)</option>
+            <option value="United Kingdom">United Kingdom (GBP / FPS)</option>
+            <option value="European Union">European Union (EUR / SEPA)</option>
+            <option value="Canada">Canada (CAD / EFT)</option>
+            <option value="Australia">Australia (AUD / NPP)</option>
+            <option value="Singapore">Singapore (SGD / FAST)</option>
+            <option value="United Arab Emirates">UAE (AED / CBUAE)</option>
+            <option value="Nigeria">Nigeria (NGN / NIBSS)</option>
+            <option value="Global / Other">Global / International Clearing</option>
           </select>
         </div>
 
-        {/* Account Number Input */}
+        {/* Global Institution Selector & Custom Manual Input */}
         <div>
-          <label className="block text-[8px] uppercase font-mono text-zinc-500 mb-1">Account Number (10 Digits)</label>
+          <label className="block text-[8px] uppercase font-mono text-zinc-500 mb-1">Select Global Bank or Enter Custom</label>
+          <select
+            onChange={(e) => {
+              const selected = globalBanks.find(b => b.name === e.target.value);
+              if (selected) {
+                setBankName(selected.name);
+                setSwiftCode(selected.swift);
+                if (selected.country) setCountry(selected.country);
+              } else {
+                setBankName('');
+                setSwiftCode('');
+              }
+            }}
+            className="w-full bg-zinc-950 text-zinc-200 border border-zinc-800 rounded-xl px-2.5 py-2 text-[11px] focus:outline-none focus:border-cyan-500 cursor-pointer mb-2 font-sans"
+          >
+            <option value="">-- Choose Global Institution --</option>
+            {globalBanks.map((bank, idx) => (
+              <option key={idx} value={bank.name}>{bank.name}</option>
+            ))}
+          </select>
+          
           <input
             type="text"
-            maxLength={10}
-            value={accountNumber}
-            onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ''))}
-            placeholder="0123456789"
-            className="w-full bg-zinc-950 text-zinc-200 border border-zinc-850 rounded-xl px-2.5 py-2 font-mono text-[11px] tracking-widest focus:outline-none focus:border-pink-500 transition"
+            value={bankName}
+            onChange={(e) => setBankName(e.target.value)}
+            placeholder="Or type bank name manually (e.g., Revolut, Chase, HSBC)"
+            className="w-full bg-zinc-950 text-zinc-200 border border-zinc-800 rounded-xl px-2.5 py-2 text-[11px] focus:outline-none focus:border-cyan-500 font-sans"
             required
           />
         </div>
 
-        {/* Live Resolved Account Name Output Banner */}
-        {(isVerifying || accountName) && (
-          <div className="bg-zinc-950/60 border border-zinc-900 rounded-xl p-2.5 text-center">
-            {isVerifying ? (
-              <span className="text-[9px] font-mono text-zinc-400 animate-pulse block">🔍 Verifying account token ledger...</span>
-            ) : (
-              <span className={`text-[10px] font-black tracking-wide block uppercase ${accountName.startsWith('❌') ? 'text-red-400' : 'text-emerald-400 font-mono'}`}>
-                {accountName}
-              </span>
-            )}
-          </div>
-        )}
+        {/* Account Number / IBAN */}
+        <div>
+          <label className="block text-[8px] uppercase font-mono text-zinc-500 mb-1">Account Number or IBAN</label>
+          <input
+            type="text"
+            value={accountNumber}
+            onChange={(e) => setAccountNumber(e.target.value)}
+            placeholder="Enter Account Number or IBAN"
+            className="w-full bg-zinc-950 text-zinc-200 border border-zinc-800 rounded-xl px-2.5 py-2 font-mono text-[11px] tracking-wider focus:outline-none focus:border-cyan-500"
+            required
+          />
+        </div>
 
-        {/* Save/Link Action Button */}
+        {/* SWIFT / BIC Code */}
+        <div>
+          <label className="block text-[8px] uppercase font-mono text-zinc-500 mb-1">SWIFT / BIC Code</label>
+          <input
+            type="text"
+            value={swiftCode}
+            onChange={(e) => setSwiftCode(e.target.value.toUpperCase())}
+            placeholder="e.g., CHASUS33XXX"
+            className="w-full bg-zinc-950 text-zinc-200 border border-zinc-800 rounded-xl px-2.5 py-2 font-mono text-[11px] tracking-wider uppercase focus:outline-none focus:border-cyan-500"
+          />
+        </div>
+
+        {/* Action Button */}
         <button
           type="submit"
-          disabled={isSaving || !accountName || accountName.startsWith('❌')}
-          className="w-full bg-zinc-800 hover:bg-zinc-750 text-white font-black text-[10px] uppercase tracking-wider py-2.5 rounded-xl border border-zinc-700 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          disabled={isSaving}
+          className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-[10px] uppercase tracking-wider py-2.5 rounded-xl transition cursor-pointer disabled:opacity-40 shadow-lg shadow-cyan-950 active:scale-[0.98]"
         >
-          {isSaving ? "Locking details..." : "Link Account Routing"}
+          {isSaving ? "Linking Global Destination..." : "Link Global Bank Routing"}
         </button>
       </form>
     </div>
   );
 }
+
+export const GlobalOrLocalSettlementForm = HostSettlementForm;
+export default HostSettlementForm;

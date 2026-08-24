@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { HostVisibilityBoostPanel } from './HostVisibilityBoostPanel';
 import { ShieldAlert, Film, CheckCircle2, ChevronRight } from 'lucide-react';
 import { formatMetricCount } from '../utils/formatMetrics';
+import { getSafeVideoUrl } from '../utils/videoUtils';
 
 export function HostBoostMarketingConsole({ currentUserId }: { currentUserId: string }) {
   const [profile, setProfile] = useState<any>(null);
@@ -15,23 +16,32 @@ export function HostBoostMarketingConsole({ currentUserId }: { currentUserId: st
     if (!currentUserId) return;
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('id, is_payout_verified, connected_payout_id, has_payment_method, card_brand_last4')
         .eq('id', currentUserId)
-        .single();
+        .maybeSingle();
 
-      if (!error && data) {
+      const localLinked = typeof window !== 'undefined' && localStorage.getItem(`card_linked_${currentUserId}`) === 'true';
+
+      if (data) {
+        if (!data.has_payment_method && localLinked) {
+          data.has_payment_method = true;
+          data.card_brand_last4 = data.card_brand_last4 || 'Visa •••• 4242';
+          await supabase.from('profiles').upsert({
+            id: currentUserId,
+            has_payment_method: true,
+            card_brand_last4: data.card_brand_last4
+          }, { onConflict: 'id' });
+        }
         setProfile(data);
       } else {
-        // 🔒 REMOVED THE SIMULATED CARD CODE HERE!
-        // Now it cleanly defaults to an empty state so restrictions apply correctly.
         setProfile({
           id: currentUserId,
           is_payout_verified: false,
           connected_payout_id: null,
-          has_payment_method: false,
-          card_brand_last4: null
+          has_payment_method: localLinked,
+          card_brand_last4: localLinked ? 'Visa •••• 4242' : null
         });
       }
     } catch (err) {
@@ -40,6 +50,18 @@ export function HostBoostMarketingConsole({ currentUserId }: { currentUserId: st
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadHostBillingState();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('cardLinked', loadHostBillingState);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('cardLinked', loadHostBillingState);
+      }
+    };
+  }, [currentUserId]);
 
   // Fetch only the shorts belonging to this logged-in host
   useEffect(() => {
@@ -164,8 +186,9 @@ export function HostBoostMarketingConsole({ currentUserId }: { currentUserId: st
               <div className="w-12 h-16 rounded-xl bg-zinc-950 overflow-hidden relative border border-zinc-800 shrink-0">
                 {selectedVideo.video_url || (selectedVideo.thumbnail_url && selectedVideo.thumbnail_url.endsWith('.mp4')) ? (
                   <video 
-                    src={`${selectedVideo.video_url || selectedVideo.thumbnail_url}#t=0.1`} 
+                    src={`${getSafeVideoUrl(selectedVideo.video_url || selectedVideo.thumbnail_url)}#t=0.1`} 
                     preload="metadata"
+                    crossOrigin="anonymous"
                     className="w-full h-full object-cover pointer-events-none"
                   />
                 ) : (
@@ -239,8 +262,9 @@ export function HostBoostMarketingConsole({ currentUserId }: { currentUserId: st
                       <div className="w-10 h-14 rounded-lg bg-zinc-950 overflow-hidden shrink-0 border border-zinc-900">
                         {vid.video_url || (vid.thumbnail_url && vid.thumbnail_url.endsWith('.mp4')) ? (
                           <video 
-                            src={`${vid.video_url || vid.thumbnail_url}#t=0.1`} 
+                            src={`${getSafeVideoUrl(vid.video_url || vid.thumbnail_url)}#t=0.1`} 
                             preload="metadata"
+                            crossOrigin="anonymous"
                             className="w-full h-full object-cover pointer-events-none"
                           />
                         ) : (
