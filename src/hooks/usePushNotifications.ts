@@ -32,7 +32,7 @@ export function usePushNotifications(): PushNotificationHookResult {
       setPermission(Notification.permission);
       
       // Check if service worker is already registered
-      navigator.serviceWorker.getRegistration('/service-worker.js').then((reg) => {
+      navigator.serviceWorker.getRegistration('/sw.js').then((reg) => {
         if (reg) {
           setIsRegistered(true);
           reg.pushManager.getSubscription().then((sub) => {
@@ -68,7 +68,7 @@ export function usePushNotifications(): PushNotificationHookResult {
 
       // Step B: Register the Service Worker
       // Try first with service-worker.js, fallback to sw.js if any issue
-      const registration = await navigator.serviceWorker.register('/service-worker.js', {
+      const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/'
       });
       

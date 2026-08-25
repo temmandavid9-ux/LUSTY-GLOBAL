@@ -1,13 +1,12 @@
 // Service Worker for Push, Background Notifications, Assets Caching and Offline Mode
-const SW_VERSION = '1.1.3';
-const CACHE_NAME_STATIC = 'lusty-global-static-v5';
-const CACHE_NAME_API = 'lusty-global-api-v5';
+const SW_VERSION = '1.2.0';
+const CACHE_NAME_STATIC = 'lusty-global-static-v10';
+const CACHE_NAME_API = 'lusty-global-api-v10';
 
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/logo.png',
-  '/manifest.json',
 ];
 
 self.addEventListener('install', (event) => {
@@ -42,6 +41,7 @@ self.addEventListener('activate', (event) => {
 // Helper to determine if a request is a static asset
 function isStaticAsset(url) {
   const path = url.pathname;
+  if (path.includes('manifest.json')) return false;
   return (
     url.origin === self.location.origin &&
     (path === '/' ||
