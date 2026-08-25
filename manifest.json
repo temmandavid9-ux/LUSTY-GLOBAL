@@ -1,10 +1,11 @@
 {
-  "short_name": "Lusty",
+  "short_name": "Lusty VIP",
   "name": "Lusty Global VIP",
   "description": "Lusty Global VIP Premium Live Lounge & Hosts",
   "start_url": "/",
+  "id": "/",
   "background_color": "#090a16",
-  "theme_color": "#090a16",
+  "theme_color": "#ec4899",
   "display": "standalone",
   "orientation": "portrait",
   "icons": [

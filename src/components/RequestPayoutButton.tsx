@@ -23,6 +23,16 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
   // ALWAYS look at the Escrow/Vault balance (or fall back to pending balance, or default to 250.00 test/loading reserve)
   const availableToWithdraw = (escrowBalance && escrowBalance > 0) ? escrowBalance : (pendingBalance > 0 ? pendingBalance : 250.00);
 
+  // 1. Track the Input State for withdrawal amount
+  const [payoutAmount, setPayoutAmount] = useState<string>(availableToWithdraw.toFixed(2));
+
+  // Sync initial payoutAmount when availableToWithdraw changes if user hasn't modified it
+  React.useEffect(() => {
+    if (availableToWithdraw > 0) {
+      setPayoutAmount(availableToWithdraw.toFixed(2));
+    }
+  }, [availableToWithdraw]);
+
   const isLocalConfigured = (() => {
     if (!currentUserId) return false;
     try {
@@ -37,6 +47,8 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
 
   const isConfigured = payoutConfigured || isLocalConfigured;
 
+  const numericPayoutAmount = parseFloat(payoutAmount) || 0;
+
   const handleTriggerPayout = async () => {
     // 1. Validate configuration
     if (!isConfigured) {
@@ -44,8 +56,8 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
       return;
     }
 
-    if (availableToWithdraw <= 0) {
-      setErrorMsg("You don't have any funds available in your Escrow/Vault balance for payout.");
+    if (numericPayoutAmount <= 0) {
+      setErrorMsg("Please enter a valid payout amount greater than $0.00.");
       return;
     }
 
@@ -73,14 +85,14 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
           },
           body: JSON.stringify({
             userId: currentUserId,
-            amount: availableToWithdraw,
+            amount: numericPayoutAmount,
           }),
         });
 
         if (response.ok) {
           const result = await response.json();
           success = true;
-          alertMsg = result.message || `🚀 Vault Payout request of $${availableToWithdraw.toFixed(2)} successfully submitted via Flutterwave!`;
+          alertMsg = result.message || `🚀 Vault Payout request of $${numericPayoutAmount.toFixed(2)} successfully submitted via Flutterwave!`;
         }
       } catch (edgeErr) {
         console.warn("Edge function unavailable or CORS protected, falling back to local payout engine:", edgeErr);
@@ -90,14 +102,14 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
       if (!success) {
         const payoutResult = await triggerFlutterwavePayout(
           currentUserId,
-          availableToWithdraw
+          numericPayoutAmount
         );
 
         if (!payoutResult.success) {
           throw new Error(payoutResult.message || 'Failed to process payout request.');
         }
 
-        alertMsg = payoutResult.message || `🚀 Payout request successfully submitted via Flutterwave! Amount: $${availableToWithdraw.toFixed(2)}`;
+        alertMsg = payoutResult.message || `🚀 Payout request successfully submitted via Flutterwave! Amount: $${numericPayoutAmount.toFixed(2)}`;
       }
 
       alert(alertMsg);
@@ -109,21 +121,45 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
     }
   };
 
+  const formattedAmountDisplay = numericPayoutAmount > 0 
+    ? numericPayoutAmount.toFixed(2) 
+    : (payoutAmount || '0.00');
+
   return (
-    <div className="w-full">
+    <div className="w-full space-y-2">
+      {/* 1. Track the Input State */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[10px] text-zinc-400 font-mono uppercase tracking-wider">
+          Withdrawal Amount ($)
+        </label>
+        <div className="relative flex items-center">
+          <span className="absolute left-3 text-zinc-400 font-bold text-xs font-mono">$</span>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={payoutAmount}
+            onChange={(e) => setPayoutAmount(e.target.value)}
+            placeholder="0.00"
+            className="w-full bg-zinc-900/90 border border-zinc-800 text-white font-mono text-xs pl-7 pr-3 py-2 rounded-xl focus:outline-none focus:border-pink-500 transition"
+          />
+        </div>
+      </div>
+
       {errorMsg && (
-        <div className="mb-2 p-2 bg-red-950/40 border border-red-900/50 rounded-lg text-[10px] text-red-400 font-mono">
+        <div className="p-2 bg-red-950/40 border border-red-900/50 rounded-lg text-[10px] text-red-400 font-mono">
           {errorMsg}
         </div>
       )}
 
+      {/* 2. Dynamic Button Text */}
       <button
         type="button"
         onClick={handleTriggerPayout}
         disabled={isLoading}
-        className="w-full bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-black text-xs py-2.5 rounded-xl transition duration-150 font-mono shadow-lg cursor-pointer uppercase tracking-wider disabled:opacity-50"
+        className="w-full bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-black text-xs py-3 rounded-xl transition duration-150 font-mono shadow-lg cursor-pointer uppercase tracking-wider disabled:opacity-50"
       >
-        {isLoading ? 'Processing Transfer...' : `Request Payout ($${availableToWithdraw.toFixed(2)})`}
+        {isLoading ? 'Processing Transfer...' : `REQUEST PAYOUT ($${formattedAmountDisplay})`}
       </button>
 
       {/* Confirmation Modal Overlay */}
@@ -134,8 +170,8 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
               Confirm Flutterwave Payout
             </h4>
             <p className="text-xs text-zinc-400 font-mono">
-              Are you sure you want to disburse your vault balance of{' '}
-              <span className="text-pink-400 font-bold">${availableToWithdraw.toFixed(2)}</span> directly to your bank account?
+              Are you sure you want to disburse{' '}
+              <span className="text-pink-400 font-bold">${numericPayoutAmount.toFixed(2)}</span> directly to your bank account?
             </p>
             <div className="flex gap-2 pt-2">
               <button
