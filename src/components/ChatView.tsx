@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { COMPANIONS } from '../data';
 import { Message, Companion } from '../types';
-import { Send, Image, CreditCard, CheckCheck, ShieldAlert, Award, Mic, Volume2, Crown, ArrowRight, PhoneOff, PhoneCall, MessageSquare } from 'lucide-react';
+import { Send, Image, CreditCard, CheckCheck, Award, Mic, Volume2, Crown, ArrowRight, PhoneOff, PhoneCall, MessageSquare } from 'lucide-react';
 import { calculateDistanceInMiles } from '../utils/geo';
 import { initiateFlutterwavePayment } from '../lib/flutterwave';
 import { sanitizeUserInput, checkClientRateLimit } from '../utils/security';
@@ -1402,20 +1402,6 @@ export default function ChatView({
               {/* 💬 Scrollable Inner Feed Messages Window (If content inside the chat overflows) */}
               <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-zinc-950/20 no-scrollbar">
                 
-                {/* Shield Info Notice Box from image_63e8de.jpg */}
-                <div className="max-w-xl mx-auto bg-zinc-950/60 border border-zinc-800/80 rounded-2xl p-4 text-center text-zinc-400 text-[11px] leading-relaxed relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-2 h-full bg-pink-500" />
-                  <div className="flex items-start gap-2.5 text-left">
-                    <div className="w-5 h-5 rounded-full bg-pink-950/40 border border-pink-800/60 flex items-center justify-center text-pink-400 shrink-0 mt-0.5">
-                      <ShieldAlert className="w-3 h-3" />
-                    </div>
-                    <div>
-                      <span className="font-bold text-zinc-200 block text-xs mb-0.5 uppercase tracking-wide font-mono">Secure Direct Escrow Chat</span>
-                      All direct bookings, messages, and tip tokens are end-to-end verified. Escrow protects both parties. Never share external bank credentials or routing keys.
-                    </div>
-                  </div>
-                </div>
-
                 {messages.map((msg) => {
                   const isMe = msg.senderId === currentUserId;
                   return (
