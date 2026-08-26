@@ -197,17 +197,20 @@ export default function VideoCallRoomModal({
           }
         }
       })
-      .on('broadcast', { event: 'END_CALL' }, (payload) => {
+      .on('broadcast', { event: 'END_CALL' }, async (payload) => {
         const data = payload.payload;
         if (data && (data.bookingId === roomConfig.bookingId || data.roomName === roomConfig.roomName)) {
           if (data.endedBy && data.endedBy.toLowerCase() !== localUsername.toLowerCase()) {
             toast(`Call ended by @${data.endedBy}`, { icon: '📞' });
-            logCallSession({
+            
+            // Await the session log to ensure it safely writes before unmounting
+            await logCallSession({
               callerUsername: roomConfig.senderUsername,
               receiverUsername: roomConfig.receiverUsername,
               status: 'COMPLETED',
               durationSeconds: callDurationSeconds
             });
+
             if (mediaStream) {
               mediaStream.getTracks().forEach(track => track.stop());
             }
@@ -240,7 +243,7 @@ export default function VideoCallRoomModal({
       supabase.removeChannel(channel);
       window.removeEventListener('lounge-in-call-tip', handleLocalTipEvent);
     };
-  }, [roomConfig, localUsername, mediaStream, onCallCompleted, onClose, totalSessionTips, showChat]);
+  }, [roomConfig, localUsername, mediaStream, onCallCompleted, onClose, totalSessionTips, showChat, callDurationSeconds]);
 
   // Play Tip Chime & Show Animated Floating Particles
   const triggerTipEffects = (sender: string, amount: number) => {

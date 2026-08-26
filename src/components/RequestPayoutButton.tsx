@@ -20,8 +20,8 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
   const [showConfirm, setShowConfirm] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ALWAYS look at the Escrow/Vault balance (or fall back to pending balance, or default to 250.00 test/loading reserve)
-  const availableToWithdraw = (escrowBalance && escrowBalance > 0) ? escrowBalance : (pendingBalance > 0 ? pendingBalance : 250.00);
+  // ALWAYS look at the Escrow/Vault balance (or fall back to pending balance, or default to 0.00)
+  const availableToWithdraw = (escrowBalance && escrowBalance > 0) ? escrowBalance : (pendingBalance > 0 ? pendingBalance : 0.00);
 
   // 1. Track the Input State for withdrawal amount
   const [payoutAmount, setPayoutAmount] = useState<string>(availableToWithdraw.toFixed(2));
