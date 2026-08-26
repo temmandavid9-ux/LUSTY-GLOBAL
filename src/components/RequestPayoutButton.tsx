@@ -25,13 +25,14 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
 
   // 1. Track the Input State for withdrawal amount
   const [payoutAmount, setPayoutAmount] = useState<string>(availableToWithdraw.toFixed(2));
+  const [userHasEdited, setUserHasEdited] = useState<boolean>(false);
 
-  // Sync initial payoutAmount when availableToWithdraw changes if user hasn't modified it
+  // Sync initial payoutAmount when availableToWithdraw changes only if user hasn't typed custom input
   React.useEffect(() => {
-    if (availableToWithdraw > 0) {
+    if (!userHasEdited && availableToWithdraw > 0) {
       setPayoutAmount(availableToWithdraw.toFixed(2));
     }
-  }, [availableToWithdraw]);
+  }, [availableToWithdraw, userHasEdited]);
 
   const isLocalConfigured = (() => {
     if (!currentUserId) return false;
@@ -121,9 +122,7 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
     }
   };
 
-  const formattedAmountDisplay = numericPayoutAmount > 0 
-    ? numericPayoutAmount.toFixed(2) 
-    : (payoutAmount || '0.00');
+  const formattedAmountDisplay = payoutAmount !== '' ? payoutAmount : '0.00';
 
   return (
     <div className="w-full space-y-2">
@@ -139,7 +138,10 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
             step="0.01"
             min="0"
             value={payoutAmount}
-            onChange={(e) => setPayoutAmount(e.target.value)}
+            onChange={(e) => {
+              setUserHasEdited(true);
+              setPayoutAmount(e.target.value);
+            }}
             placeholder="0.00"
             className="w-full bg-zinc-900/90 border border-zinc-800 text-white font-mono text-xs pl-7 pr-3 py-2 rounded-xl focus:outline-none focus:border-pink-500 transition"
           />

@@ -202,6 +202,12 @@ export default function VideoCallRoomModal({
         if (data && (data.bookingId === roomConfig.bookingId || data.roomName === roomConfig.roomName)) {
           if (data.endedBy && data.endedBy.toLowerCase() !== localUsername.toLowerCase()) {
             toast(`Call ended by @${data.endedBy}`, { icon: '📞' });
+            logCallSession({
+              callerUsername: roomConfig.senderUsername,
+              receiverUsername: roomConfig.receiverUsername,
+              status: 'COMPLETED',
+              durationSeconds: callDurationSeconds
+            });
             if (mediaStream) {
               mediaStream.getTracks().forEach(track => track.stop());
             }

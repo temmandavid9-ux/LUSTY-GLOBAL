@@ -3,6 +3,7 @@ import { PhoneOff, PhoneIncoming, PhoneOutgoing, Video, Clock, RefreshCw } from 
 import toast from 'react-hot-toast';
 import { fetchCallHistory, CallSessionRecord, initiateVideoCallSignal } from '../services/videoCallService';
 import { COMPANIONS } from '../data';
+import { supabase } from '../lib/supabase';
 
 interface RecentCallsViewProps {
   currentUsername: string;
@@ -37,9 +38,27 @@ export default function RecentCallsView({ currentUsername, onSelectUserForChat }
     window.addEventListener('lounge-call-history-updated', handleUpdate);
     window.addEventListener('lounge-missed-call-logged', handleUpdate);
 
+    // 📡 Subscribe to Supabase Realtime Channel & Database table insertions
+    const channel = supabase.channel('vip_video_calls_channel', {
+      config: { broadcast: { self: true } }
+    });
+
+    channel
+      .on('broadcast', { event: 'CALL_LOGGED' }, () => {
+        loadHistory();
+      })
+      .on('broadcast', { event: 'MISSED_CALL_LOGGED' }, () => {
+        loadHistory();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'call_history' }, () => {
+        loadHistory();
+      })
+      .subscribe();
+
     return () => {
       window.removeEventListener('lounge-call-history-updated', handleUpdate);
       window.removeEventListener('lounge-missed-call-logged', handleUpdate);
+      supabase.removeChannel(channel);
     };
   }, [currentUsername]);
 
