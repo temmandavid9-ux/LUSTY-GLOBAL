@@ -2,6 +2,90 @@ import { Companion, VideoItem, Campaign } from './types';
 
 export const COMPANIONS: Companion[] = [
   {
+    id: 'comp_lucy',
+    username: 'LUCY JUICY',
+    name: 'Lucy Juicy',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600'
+    ],
+    isVIP: true,
+    isOnline: true,
+    age: 23,
+    location: 'Abuja',
+    distance: '3.0 miles away',
+    ratePerHour: 200,
+    bio: 'VIP host and lifestyle model available in Abuja. Enquire for private bookings and exclusive social accompaniment.',
+    tags: ['VIP Host', 'Elegance', 'Model'],
+    rating: 4.9,
+    reviewsCount: 38,
+    verifiedAt: 'August 2026',
+    languages: ['English']
+  },
+  {
+    id: 'comp_starboy',
+    username: 'starboy',
+    name: 'Starboy VIP',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600'
+    ],
+    isVIP: true,
+    isOnline: true,
+    age: 26,
+    location: 'London, Mayfair',
+    distance: '1.2 miles away',
+    ratePerHour: 250,
+    bio: 'Nightlife creator and elite VIP entertainer. Available for private lounge hosting.',
+    tags: ['VIP', 'Nightlife', 'Host'],
+    rating: 4.9,
+    reviewsCount: 52,
+    verifiedAt: 'July 2026',
+    languages: ['English']
+  },
+  {
+    id: 'comp_testcreator',
+    username: 'Test Creator',
+    name: 'Test Creator',
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=600'
+    ],
+    isVIP: false,
+    isOnline: false,
+    age: 25,
+    location: 'London Area',
+    distance: '2.5 miles away',
+    ratePerHour: 250,
+    bio: 'Official test creator account for live radar streaming and video lounge testing.',
+    tags: ['Creator', 'Live Stream'],
+    rating: 4.9,
+    reviewsCount: 15,
+    verifiedAt: 'August 2026',
+    languages: ['English']
+  },
+  {
+    id: 'comp_blackqueen',
+    username: 'blackqueen',
+    name: 'Black Queen',
+    avatar: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=300&q=80',
+    images: [
+      'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=600'
+    ],
+    isVIP: true,
+    isOnline: true,
+    age: 24,
+    location: 'London, Chelsea',
+    distance: '1.8 miles away',
+    ratePerHour: 180,
+    bio: 'Top tier VIP host with 116.2k followers. High-fashion model and private lounge guest.',
+    tags: ['Model', 'VIP', 'Fashion'],
+    rating: 4.8,
+    reviewsCount: 89,
+    verifiedAt: 'June 2026',
+    languages: ['English']
+  },
+  {
     id: 'comp_1',
     username: 'Elena_VIP',
     name: 'Elena Rostova',

@@ -12,6 +12,11 @@ if (typeof window !== 'undefined') {
     (window as any).deferredPWAInstallPrompt = e;
     window.dispatchEvent(new CustomEvent('pwa-prompt-available'));
   });
+
+  window.addEventListener('appinstalled', () => {
+    localStorage.setItem('pwa_app_installed', 'true');
+    window.dispatchEvent(new CustomEvent('pwa-installed-status-changed'));
+  });
 }
 
 export function triggerPWAInstall() {
@@ -20,19 +25,69 @@ export function triggerPWAInstall() {
   }
 }
 
+export function usePWAInstallStatus() {
+  const [isInstalled, setIsInstalled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+    const isStoredInstalled = localStorage.getItem('pwa_app_installed') === 'true';
+    return isStandalone || isStoredInstalled;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const checkStatus = () => {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+      const isStoredInstalled = localStorage.getItem('pwa_app_installed') === 'true';
+      setIsInstalled(isStandalone || isStoredInstalled);
+    };
+
+    const handleAppInstalled = () => {
+      localStorage.setItem('pwa_app_installed', 'true');
+      checkStatus();
+    };
+
+    window.addEventListener('appinstalled', handleAppInstalled);
+    window.addEventListener('pwa-installed-status-changed', checkStatus);
+
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const handleMediaChange = (e: MediaQueryListEvent) => {
+      if (e.matches) {
+        localStorage.setItem('pwa_app_installed', 'true');
+        checkStatus();
+      }
+    };
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleMediaChange);
+    } else {
+      (mediaQuery as any).addListener(handleMediaChange);
+    }
+
+    return () => {
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      window.removeEventListener('pwa-installed-status-changed', checkStatus);
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener('change', handleMediaChange);
+      } else {
+        (mediaQuery as any).removeListener(handleMediaChange);
+      }
+    };
+  }, []);
+
+  return isInstalled;
+}
+
 export function InstallPWABanner() {
+  const isInstalled = usePWAInstallStatus();
   const [deferredPrompt, setDeferredPrompt] = useState<any>(() => globalDeferredPrompt || (window as any).deferredPWAInstallPrompt || null);
   const [showBanner, setShowBanner] = useState<boolean>(false);
   const [showInstructionsModal, setShowInstructionsModal] = useState<boolean>(false);
-  const [isStandalone, setIsStandalone] = useState<boolean>(false);
   const [deviceOS, setDeviceOS] = useState<'ios' | 'android' | 'desktop'>('desktop');
 
   useEffect(() => {
-    // Detect OS & standalone status
+    // Detect OS
     if (typeof window !== 'undefined') {
-      const isStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
-      setIsStandalone(isStandaloneMode);
-
       const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
       if (/iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream) {
         setDeviceOS('ios');
@@ -49,7 +104,7 @@ export function InstallPWABanner() {
       (window as any).deferredPWAInstallPrompt = e;
       setDeferredPrompt(e);
       // Automatically show banner if prompt is fired and not dismissed in session
-      if (sessionStorage.getItem('pwa_banner_dismissed') !== 'true') {
+      if (sessionStorage.getItem('pwa_banner_dismissed') !== 'true' && !isInstalled) {
         setShowBanner(true);
       }
     };
@@ -57,7 +112,7 @@ export function InstallPWABanner() {
     const handlePromptAvailable = () => {
       if (globalDeferredPrompt || (window as any).deferredPWAInstallPrompt) {
         setDeferredPrompt(globalDeferredPrompt || (window as any).deferredPWAInstallPrompt);
-        if (sessionStorage.getItem('pwa_banner_dismissed') !== 'true') {
+        if (sessionStorage.getItem('pwa_banner_dismissed') !== 'true' && !isInstalled) {
           setShowBanner(true);
         }
       }
@@ -65,7 +120,7 @@ export function InstallPWABanner() {
 
     const handleTriggerInstall = () => {
       // Direct install request triggered by Header or menu button
-      if (window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true) {
+      if (window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true || localStorage.getItem('pwa_app_installed') === 'true') {
         toast.success("✨ Lusty VIP is already installed on your device as a PWA!", {
           icon: '📱',
           style: { background: '#09090b', color: '#ec4899', border: '1px solid rgba(236, 72, 153, 0.3)', fontFamily: 'monospace' }
@@ -89,7 +144,7 @@ export function InstallPWABanner() {
     // Initial check if prompt already exists
     if (globalDeferredPrompt || (window as any).deferredPWAInstallPrompt) {
       setDeferredPrompt(globalDeferredPrompt || (window as any).deferredPWAInstallPrompt);
-      if (sessionStorage.getItem('pwa_banner_dismissed') !== 'true') {
+      if (sessionStorage.getItem('pwa_banner_dismissed') !== 'true' && !isInstalled) {
         setShowBanner(true);
       }
     }
@@ -99,13 +154,15 @@ export function InstallPWABanner() {
       window.removeEventListener('pwa-prompt-available', handlePromptAvailable);
       window.removeEventListener('trigger-pwa-install', handleTriggerInstall);
     };
-  }, [deferredPrompt]);
+  }, [deferredPrompt, isInstalled]);
 
   const executePrompt = async (promptObj: any) => {
     try {
       promptObj.prompt();
       const { outcome } = await promptObj.userChoice;
       if (outcome === 'accepted') {
+        localStorage.setItem('pwa_app_installed', 'true');
+        window.dispatchEvent(new CustomEvent('pwa-installed-status-changed'));
         toast.success("🎉 Lusty VIP installed successfully!", { icon: '✨' });
         setShowBanner(false);
       } else {
@@ -122,7 +179,7 @@ export function InstallPWABanner() {
   };
 
   const handleInstallClick = () => {
-    if (isStandalone) {
+    if (isInstalled) {
       toast.success("Lusty VIP is already running in app mode!", { icon: '✅' });
       return;
     }
@@ -140,7 +197,7 @@ export function InstallPWABanner() {
     sessionStorage.setItem('pwa_banner_dismissed', 'true');
   };
 
-  if (isStandalone) return null;
+  if (isInstalled) return null;
 
   return (
     <>

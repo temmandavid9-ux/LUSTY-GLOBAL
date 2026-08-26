@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { Compass, MessageSquare, Award, MapPin, Loader2, LocateFixed, Move } from 'lucide-react';
 import { calculateDistanceInMiles } from '../utils/geo';
 
-interface RadarCompanion {
+export interface RadarCompanion {
   id: string;
   username: string;
   avatar_url?: string;
@@ -14,6 +14,8 @@ interface RadarCompanion {
   lng_offset: number;
   is_online?: boolean;
 }
+
+export const MOCK_RADAR_HOSTS: RadarCompanion[] = [];
 
 export interface RadarFilters {
   onlineOnly: boolean;
@@ -240,12 +242,14 @@ export function LustyLiveRadar({
           setHosts(mappedData);
           if (mappedData.length > 0) setSelectedHost(mappedData[0]);
         } else {
-          // If database returns empty list, set empty list so we never override with mock profiles
-          setHosts([]);
-          setSelectedHost(null);
+          // If database returns empty list or isn't populated, use mock radar hosts fallback
+          setHosts(MOCK_RADAR_HOSTS);
+          if (MOCK_RADAR_HOSTS.length > 0) setSelectedHost(MOCK_RADAR_HOSTS[0]);
         }
       } catch (err) {
-        console.warn('Radar live data fetch failed:', err);
+        console.warn('Radar live data fetch failed, using mock radar hosts:', err);
+        setHosts(MOCK_RADAR_HOSTS);
+        if (MOCK_RADAR_HOSTS.length > 0) setSelectedHost(MOCK_RADAR_HOSTS[0]);
       } finally {
         setIsLoading(false);
       }

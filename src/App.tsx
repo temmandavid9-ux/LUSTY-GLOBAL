@@ -24,7 +24,7 @@ import { ChatUnreadBadge } from './components/ChatUnreadBadge';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import { useRealtimeWallet } from './hooks/useRealtimeWallet';
 import { UnifiedAlertListener } from './components/UnifiedAlertListener';
-import { InstallPWABanner, triggerPWAInstall } from './components/InstallPWABanner';
+import { InstallPWABanner, triggerPWAInstall, usePWAInstallStatus } from './components/InstallPWABanner';
 import { PlatformRatingModal } from './components/PlatformRatingModal';
 import { COMPANIONS } from './data';
 import { Companion, Booking } from './types';
@@ -49,6 +49,8 @@ import {
 import toast, { Toaster } from 'react-hot-toast';
 
 export default function App() {
+  const isAppInstalled = usePWAInstallStatus();
+
   // 1. Age Verification Gate State
   const [isAgeVerified, setIsAgeVerified] = useState(false);
 
@@ -1744,25 +1746,27 @@ export default function App() {
           </button>
 
           {/* PWA App Installation Option */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowProfileDetails(false);
-              triggerPWAInstall();
-            }}
-            className="w-full bg-gradient-to-r from-pink-500/10 to-purple-600/10 hover:from-pink-500/20 hover:to-purple-600/20 border border-pink-500/30 hover:border-pink-500/60 p-3 rounded-2xl text-xs font-bold text-pink-300 hover:text-pink-200 transition flex items-center justify-between cursor-pointer group"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-pink-500/20 flex items-center justify-center border border-pink-500/40 text-pink-400">
-                <Download className="w-3.5 h-3.5" />
+          {!isAppInstalled && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowProfileDetails(false);
+                triggerPWAInstall();
+              }}
+              className="w-full bg-gradient-to-r from-pink-500/10 to-purple-600/10 hover:from-pink-500/20 hover:to-purple-600/20 border border-pink-500/30 hover:border-pink-500/60 p-3 rounded-2xl text-xs font-bold text-pink-300 hover:text-pink-200 transition flex items-center justify-between cursor-pointer group"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-full bg-pink-500/20 flex items-center justify-center border border-pink-500/40 text-pink-400">
+                  <Download className="w-3.5 h-3.5" />
+                </div>
+                <div className="text-left">
+                  <span className="block font-bold text-zinc-100 group-hover:text-pink-300">Install PWA Web App</span>
+                  <span className="block text-[9px] text-zinc-400 font-mono">Full-screen mode • Instant lounge access</span>
+                </div>
               </div>
-              <div className="text-left">
-                <span className="block font-bold text-zinc-100 group-hover:text-pink-300">Install PWA Web App</span>
-                <span className="block text-[9px] text-zinc-400 font-mono">Full-screen mode • Instant lounge access</span>
-              </div>
-            </div>
-            <span className="text-[10px] bg-pink-500 text-zinc-950 px-2.5 py-1 rounded-full font-mono font-black uppercase tracking-wider group-hover:scale-105 transition">Install 📲</span>
-          </button>
+              <span className="text-[10px] bg-pink-500 text-zinc-950 px-2.5 py-1 rounded-full font-mono font-black uppercase tracking-wider group-hover:scale-105 transition">Install 📲</span>
+            </button>
+          )}
         </div>
 
         {/* 5. Action Suite / Logout */}
@@ -1841,15 +1845,17 @@ export default function App() {
               </div>
 
               {/* Header PWA Install Trigger Button (Mobile) */}
-              <button
-                type="button"
-                onClick={() => triggerPWAInstall()}
-                className="bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/40 text-pink-300 px-2 py-0.5 rounded-full text-[8px] font-mono font-black flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 transition"
-                title="Install PWA Web App"
-              >
-                <Download className="w-2.5 h-2.5 text-pink-400" />
-                <span>INSTALL</span>
-              </button>
+              {!isAppInstalled && (
+                <button
+                  type="button"
+                  onClick={() => triggerPWAInstall()}
+                  className="bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/40 text-pink-300 px-2 py-0.5 rounded-full text-[8px] font-mono font-black flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 transition"
+                  title="Install PWA Web App"
+                >
+                  <Download className="w-2.5 h-2.5 text-pink-400" />
+                  <span>INSTALL</span>
+                </button>
+              )}
             </div>
 
             {/* Connected Profile Node Menu */}
@@ -1896,15 +1902,17 @@ export default function App() {
             </div>
 
             {/* Header PWA Install Trigger Button (Desktop) */}
-            <button
-              type="button"
-              onClick={() => triggerPWAInstall()}
-              className="bg-gradient-to-r from-pink-500/20 to-purple-600/20 hover:from-pink-500/30 hover:to-purple-600/30 border border-pink-500/40 text-pink-300 hover:text-white px-3 py-1 rounded-full text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm active:scale-95"
-              title="Install Lusty VIP Web App (PWA)"
-            >
-              <Download className="w-3.5 h-3.5 text-pink-400" />
-              <span>INSTALL APP</span>
-            </button>
+            {!isAppInstalled && (
+              <button
+                type="button"
+                onClick={() => triggerPWAInstall()}
+                className="bg-gradient-to-r from-pink-500/20 to-purple-600/20 hover:from-pink-500/30 hover:to-purple-600/30 border border-pink-500/40 text-pink-300 hover:text-white px-3 py-1 rounded-full text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm active:scale-95"
+                title="Install Lusty VIP Web App (PWA)"
+              >
+                <Download className="w-3.5 h-3.5 text-pink-400" />
+                <span>INSTALL APP</span>
+              </button>
+            )}
           </div>
 
           {/* Center Nav Items */}
