@@ -122,29 +122,41 @@ export interface CallSessionRecord {
 /**
  * Log a video call session (COMPLETED, DECLINED, MISSED, CANCELLED) to Supabase 'call_history' table
  */
-export async function logCallSession(params: {
+export async function logCallSession(session: {
   callerUsername: string;
   receiverUsername: string;
   status: 'COMPLETED' | 'DECLINED' | 'MISSED' | 'CANCELLED';
   durationSeconds?: number;
   reason?: string;
 }) {
-  const record: CallSessionRecord = {
-    caller_username: params.callerUsername,
-    receiver_username: params.receiverUsername,
-    status: params.status,
-    duration_seconds: params.durationSeconds || 0,
-    reason: params.reason || '',
-    created_at: new Date().toISOString()
-  };
+  const createdAt = new Date().toISOString();
 
   try {
-    const { error } = await supabase.from('call_history').insert([record]);
-    if (error) {
-      console.warn("Could not insert record into Supabase 'call_history':", error);
-    }
+    // 1. Attempt database write
+    const { error } = await supabase.from('call_history').insert([{
+      caller_username: session.callerUsername,
+      receiver_username: session.receiverUsername,
+      status: session.status,
+      duration_seconds: session.durationSeconds || 0,
+      reason: session.reason || '',
+      created_at: createdAt
+    }]);
+
+    if (error) throw error;
   } catch (err) {
-    console.warn("Call history table insert error:", err);
+    console.warn("Supabase call history sync failed, saving to local storage fallback:", err);
+    // 2. Guaranteed Local Storage Fallback
+    try {
+      const existing = JSON.parse(localStorage.getItem('lounge_call_history') || '[]');
+      const newEntry = {
+        id: `call_${Date.now()}`,
+        ...session,
+        created_at: createdAt
+      };
+      localStorage.setItem('lounge_call_history', JSON.stringify([newEntry, ...existing]));
+    } catch (e) {
+      console.warn("Failed writing to local storage fallback:", e);
+    }
   }
 
   // Broadcast realtime call log event across all active devices
@@ -153,30 +165,22 @@ export async function logCallSession(params: {
     await channel.send({
       type: 'broadcast',
       event: 'CALL_LOGGED',
-      payload: record
+      payload: {
+        caller_username: session.callerUsername,
+        receiver_username: session.receiverUsername,
+        status: session.status,
+        duration_seconds: session.durationSeconds || 0,
+        reason: session.reason || '',
+        created_at: createdAt
+      }
     });
   } catch (e) {
     // ignore
   }
 
-  // Local storage fallback for offline/sandbox mode
-  try {
-    const existing = JSON.parse(localStorage.getItem('lounge_call_history') || '[]');
-    const newEntry = {
-      id: `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      ...record
-    };
-    existing.unshift(newEntry);
-    localStorage.setItem('lounge_call_history', JSON.stringify(existing.slice(0, 100)));
-  } catch (e) {
-    // ignore
-  }
-
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('lounge-call-history-updated', { detail: record }));
+    window.dispatchEvent(new CustomEvent('lounge-call-history-updated', { detail: session }));
   }
-
-  return record;
 }
 
 /**
