@@ -5,9 +5,10 @@ import { supabase } from '../lib/supabase';
 
 interface LoginFormProps {
   onLoginSuccess: (username: string, avatar: string, userId: string) => void;
+  onClose?: () => void;
 }
 
-export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
+export default function LoginForm({ onLoginSuccess, onClose }: LoginFormProps) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -165,6 +166,17 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
   return (
     <div className="bg-[#0c0c0e] border border-zinc-900 rounded-3xl p-8 max-w-sm w-full font-sans text-white text-left shadow-2xl relative overflow-hidden">
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 to-purple-500" />
+      
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 bg-zinc-900/60 hover:bg-zinc-800 w-8 h-8 rounded-full flex items-center justify-center text-xs transition cursor-pointer z-10"
+          title="Close"
+        >
+          ✕
+        </button>
+      )}
       
       <div className="mb-6 text-center">
         {/* ── 📱 UNIFIED LOGO BLOCK (MOBILE FRIENDLY) ── */}

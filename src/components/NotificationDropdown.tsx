@@ -28,6 +28,7 @@ export function NotificationDropdown({ currentUserId }: { currentUserId: string 
 
   // 1. Fetch unread notifications on mount
   const fetchNotifications = async () => {
+    if (!currentUserId) return;
     try {
       const { data, error } = await supabase
         .from('notifications')

@@ -44,9 +44,11 @@ import {
   Bell,
   VolumeX,
   Lock,
-  Download
+  Download,
+  Sparkles
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import SecurityAlertModal from './components/SecurityAlertModal';
 
 export default function App() {
   const isAppInstalled = usePWAInstallStatus();
@@ -56,6 +58,17 @@ export default function App() {
 
   // 2. Auth Session State
   const [userProfile, setUserProfile] = useState<{ id: string; username: string; avatar: string } | null>(null);
+  const [showSecurityAlert, setShowSecurityAlert] = useState<boolean>(false);
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+
+  const handleOpenLoginWithSecurityAlert = () => {
+    setShowSecurityAlert(true);
+  };
+
+  const handleProceedToLogin = () => {
+    setShowSecurityAlert(false);
+    setShowLoginModal(true);
+  };
 
   // Real-time Wallet Hook
   const liveWalletBalance = useRealtimeWallet(userProfile?.id);
@@ -925,12 +938,22 @@ export default function App() {
 
   // Launch chat with specific companion
   const handleStartChat = (companionId: string) => {
+    if (!userProfile) {
+      toast.error("Please sign in to message creators!", { icon: '🔒' });
+      handleOpenLoginWithSecurityAlert();
+      return;
+    }
     setActiveCompanionIdForChat(companionId);
     setActiveTab('chat');
   };
 
   // Launch booking modal for companion
   const handleOpenBooking = async (companionId: string) => {
+    if (!userProfile) {
+      toast.error("Please sign in to request a direct booking!", { icon: '🔒' });
+      handleOpenLoginWithSecurityAlert();
+      return;
+    }
     let companion = COMPANIONS.find(c => c.id === companionId);
     if (!companion) {
       try {
@@ -1358,6 +1381,25 @@ export default function App() {
           />
         );
       case 'chat':
+        if (!userProfile) {
+          return (
+            <div className="flex flex-col items-center justify-center p-8 text-center max-w-md my-auto animate-fadeIn">
+              <div className="w-16 h-16 rounded-full bg-pink-500/20 border border-pink-500/40 flex items-center justify-center mb-4 text-pink-400">
+                <MessageSquare className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-black text-white uppercase tracking-wider mb-2">VIP Messages</h2>
+              <p className="text-xs text-zinc-400 mb-6">Sign in to unlock private 1-on-1 messaging with verified companions and creators.</p>
+              <button
+                type="button"
+                onClick={handleOpenLoginWithSecurityAlert}
+                className="bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-extrabold text-sm px-6 py-3 rounded-full shadow-lg shadow-pink-500/25 transition cursor-pointer active:scale-95 flex items-center gap-2"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Sign In / Register</span>
+              </button>
+            </div>
+          );
+        }
         return (
           <ChatView 
             activeCompanionId={activeCompanionIdForChat} 
@@ -1369,6 +1411,25 @@ export default function App() {
           />
         );
       case 'admin':
+        if (!userProfile) {
+          return (
+            <div className="flex flex-col items-center justify-center p-8 text-center max-w-md my-auto animate-fadeIn">
+              <div className="w-16 h-16 rounded-full bg-pink-500/20 border border-pink-500/40 flex items-center justify-center mb-4 text-pink-400">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-black text-white uppercase tracking-wider mb-2">Escrow Vault</h2>
+              <p className="text-xs text-zinc-400 mb-6">Sign in to view your secure escrow balance, active direct bookings, and transaction history.</p>
+              <button
+                type="button"
+                onClick={handleOpenLoginWithSecurityAlert}
+                className="bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-extrabold text-sm px-6 py-3 rounded-full shadow-lg shadow-pink-500/25 transition cursor-pointer active:scale-95 flex items-center gap-2"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Sign In / Register</span>
+              </button>
+            </div>
+          );
+        }
         return (
           <AdminDashboardView 
             bookings={bookings} 
@@ -1379,9 +1440,28 @@ export default function App() {
           />
         );
       case 'verification':
+        if (!userProfile) {
+          return (
+            <div className="flex flex-col items-center justify-center p-8 text-center max-w-md my-auto animate-fadeIn">
+              <div className="w-16 h-16 rounded-full bg-pink-500/20 border border-pink-500/40 flex items-center justify-center mb-4 text-pink-400">
+                <Award className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-black text-white uppercase tracking-wider mb-2">Host Portal</h2>
+              <p className="text-xs text-zinc-400 mb-6">Sign in or create a creator account to submit verification documents, manage payouts, and upload exclusive content.</p>
+              <button
+                type="button"
+                onClick={handleOpenLoginWithSecurityAlert}
+                className="bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-extrabold text-sm px-6 py-3 rounded-full shadow-lg shadow-pink-500/25 transition cursor-pointer active:scale-95 flex items-center gap-2"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Sign In / Register</span>
+              </button>
+            </div>
+          );
+        }
         return (
           <VerificationPayoutDashboard 
-            userProfile={userProfile!} 
+            userProfile={userProfile} 
             isVerified={isVerified} 
             onVerifySuccess={async () => {
               setIsVerified(true);
@@ -1794,17 +1874,6 @@ export default function App() {
     return <AgeGate onVerify={handleAgeVerify} />;
   }
 
-  // Step 2: Guest Authentication Check
-  if (!userProfile) {
-    return (
-      <div className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-4 relative overflow-hidden">
-        <WatermarkBackground />
-        <div className="absolute top-1/4 left-1/4 w-80 h-80 bg-pink-500/5 rounded-full blur-3xl pointer-events-none" />
-        <LoginForm onLoginSuccess={handleLoginSuccess} />
-      </div>
-    );
-  }
-
   return (
     <div className="w-full h-[100dvh] bg-[#09090b] text-zinc-100 flex flex-col items-center relative select-none font-sans overflow-hidden">
       
@@ -1858,28 +1927,39 @@ export default function App() {
               )}
             </div>
 
-            {/* Connected Profile Node Menu */}
-            <div className="relative flex items-center gap-2 z-50 pointer-events-auto shrink-0" ref={mobileProfileDropdownRef}>
-              <button 
-                type="button"
-                onClick={() => setShowProfileDetails(!showProfileDetails)}
-                className="flex items-center gap-1.5 bg-zinc-900/60 pl-1.5 pr-2.5 py-1 rounded-full border border-zinc-800/40 cursor-pointer active:scale-95 transition relative z-50 shrink-0"
-              >
-                <div className="w-5 h-5 rounded-full bg-zinc-700 overflow-hidden shrink-0 ring-1 ring-zinc-800">
-                  <img 
-                    src={userProfile.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100'} 
-                    alt="avatar" 
-                    className="w-full h-full object-cover" 
-                  />
-                </div>
-                <span className="text-[11px] font-bold text-zinc-300 font-sans max-w-[80px] truncate">
-                  @{userProfile.username || 'companion'}
-                </span>
-                <span className="text-[9px] text-zinc-500 font-sans select-none shrink-0">{showProfileDetails ? '▲' : '▼'}</span>
-              </button>
+            {/* Connected Profile Node Menu or Guest Sign In */}
+            {userProfile ? (
+              <div className="relative flex items-center gap-2 z-50 pointer-events-auto shrink-0" ref={mobileProfileDropdownRef}>
+                <button 
+                  type="button"
+                  onClick={() => setShowProfileDetails(!showProfileDetails)}
+                  className="flex items-center gap-1.5 bg-zinc-900/60 pl-1.5 pr-2.5 py-1 rounded-full border border-zinc-800/40 cursor-pointer active:scale-95 transition relative z-50 shrink-0"
+                >
+                  <div className="w-5 h-5 rounded-full bg-zinc-700 overflow-hidden shrink-0 ring-1 ring-zinc-800">
+                    <img 
+                      src={userProfile.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100'} 
+                      alt="avatar" 
+                      className="w-full h-full object-cover" 
+                    />
+                  </div>
+                  <span className="text-[11px] font-bold text-zinc-300 font-sans max-w-[80px] truncate">
+                    @{userProfile.username || 'companion'}
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-sans select-none shrink-0">{showProfileDetails ? '▲' : '▼'}</span>
+                </button>
 
-              {renderBreakoutDropdown()}
-            </div>
+                {renderBreakoutDropdown()}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleOpenLoginWithSecurityAlert}
+                className="bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-full shadow-md shadow-pink-500/20 flex items-center gap-1 transition cursor-pointer active:scale-95 shrink-0"
+              >
+                <Lock className="w-3 h-3" />
+                <span>Sign In</span>
+              </button>
+            )}
           </header>
         )}
 
@@ -1977,36 +2057,71 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Right Tools & Profile */}
-          <div className="relative flex items-center gap-2 shrink-0" ref={profileDropdownRef}>
-            <div className="shrink-0">
-              <NotificationDropdown currentUserId={userProfile.id} />
+          {/* Right Tools & Profile / Guest Login */}
+          {userProfile ? (
+            <div className="relative flex items-center gap-2 shrink-0" ref={profileDropdownRef}>
+              <div className="shrink-0">
+                <NotificationDropdown currentUserId={userProfile.id} />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  console.log("Header profile chip clicked! Toggling state to:", !showProfileDetails);
+                  setShowProfileDetails(!showProfileDetails);
+                }}
+                className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 hover:border-pink-500/40 active:scale-98 px-2.5 py-1 rounded-full transition cursor-pointer select-none z-50 relative shrink-0"
+              >
+                <div className="w-7 h-7 rounded-full overflow-hidden border border-pink-500/80 shrink-0">
+                  <img 
+                    src={userProfile.avatar} 
+                    alt="" 
+                    className="w-full h-full object-cover" 
+                  />
+                </div>
+                <div className="flex items-center gap-1 text-left">
+                  <span className="text-xs font-bold text-zinc-100 max-w-[85px] truncate">@{userProfile.username}</span>
+                  {isVerified && <VerificationBadge size={12} />}
+                </div>
+                <span className="text-zinc-500 text-[9px] shrink-0">{showProfileDetails ? '▲' : '▼'}</span>
+              </button>
+
+              {renderBreakoutDropdown()}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleOpenLoginWithSecurityAlert}
+                className="bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-extrabold text-xs px-4 py-2 rounded-full shadow-lg shadow-pink-500/20 flex items-center gap-1.5 transition cursor-pointer active:scale-95 shrink-0"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Sign In / Register</span>
+              </button>
+            </div>
+          )}
+        </header>
+
+        {/* 🌟 Guest Welcome Banner for Unauthenticated Visitors */}
+        {!userProfile && activeTab === 'feed' && (
+          <div className="w-full bg-gradient-to-r from-pink-950/80 via-purple-950/70 to-zinc-950 border border-pink-500/30 rounded-2xl mb-3 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-pink-200 shadow-xl shrink-0">
+            <div className="flex items-center gap-2.5 text-center sm:text-left">
+              <div className="w-8 h-8 rounded-full bg-pink-500/20 border border-pink-500/40 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4 text-pink-400 animate-pulse" />
+              </div>
+              <div>
+                <span className="font-extrabold text-white text-sm block">Welcome to LUSTY VIP Lounge</span>
+                <span className="text-[11px] text-zinc-300">Browse verified companion shorts, live map radar & directory. Sign in to chat & request direct bookings.</span>
+              </div>
             </div>
             <button
               type="button"
-              onClick={() => {
-                console.log("Header profile chip clicked! Toggling state to:", !showProfileDetails);
-                setShowProfileDetails(!showProfileDetails);
-              }}
-              className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 hover:border-pink-500/40 active:scale-98 px-2.5 py-1 rounded-full transition cursor-pointer select-none z-50 relative shrink-0"
+              onClick={handleOpenLoginWithSecurityAlert}
+              className="bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-extrabold text-xs px-5 py-2 rounded-full shadow-lg shadow-pink-500/25 transition cursor-pointer active:scale-95 shrink-0 whitespace-nowrap"
             >
-              <div className="w-7 h-7 rounded-full overflow-hidden border border-pink-500/80 shrink-0">
-                <img 
-                  src={userProfile.avatar} 
-                  alt="" 
-                  className="w-full h-full object-cover" 
-                />
-              </div>
-              <div className="flex items-center gap-1 text-left">
-                <span className="text-xs font-bold text-zinc-100 max-w-[85px] truncate">@{userProfile.username}</span>
-                {isVerified && <VerificationBadge size={12} />}
-              </div>
-              <span className="text-zinc-500 text-[9px] shrink-0">{showProfileDetails ? '▲' : '▼'}</span>
+              Sign In / Register
             </button>
-
-            {renderBreakoutDropdown()}
           </div>
-        </header>
+        )}
 
         {/* Viewport Core Frame */}
         <main className="flex-1 overflow-y-auto bg-zinc-950 md:rounded-3xl border border-zinc-900 flex flex-col justify-start items-center w-full min-h-0 md:min-h-[75vh]">
@@ -2082,6 +2197,24 @@ export default function App() {
       </div>
 
       {/* 6. Active Overlay Forms */}
+      <SecurityAlertModal
+        isOpen={showSecurityAlert}
+        onClose={() => setShowSecurityAlert(false)}
+        onProceed={handleProceedToLogin}
+      />
+
+      {showLoginModal && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <LoginForm 
+            onLoginSuccess={(username, avatar, userId) => {
+              handleLoginSuccess(username, avatar, userId);
+              setShowLoginModal(false);
+            }}
+            onClose={() => setShowLoginModal(false)}
+          />
+        </div>
+      )}
+
       {showSocialModal && userProfile?.id && (
         <RealtimeSocialModal
           currentUserId={userProfile.id}
