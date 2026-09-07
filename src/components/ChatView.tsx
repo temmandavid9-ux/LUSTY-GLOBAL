@@ -2,14 +2,13 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { COMPANIONS } from '../data';
 import { Message, Companion } from '../types';
-import { Send, Image, CreditCard, CheckCheck, Award, Mic, Volume2, Crown, ArrowRight, PhoneOff, PhoneCall, MessageSquare } from 'lucide-react';
+import { Send, Image, CreditCard, CheckCheck, Award, Mic, Volume2, Crown, ArrowRight, PhoneOff, MessageSquare } from 'lucide-react';
 import { calculateDistanceInMiles } from '../utils/geo';
 import { initiateFlutterwavePayment } from '../lib/flutterwave';
 import { sanitizeUserInput, checkClientRateLimit } from '../utils/security';
 import { motion, AnimatePresence } from 'motion/react';
 import { LustyMogPicker, VIPMog } from './LustyMogPicker';
 import { LustyMogOverlay, ActiveMogEvent } from './LustyMogOverlay';
-import RecentCallsView from './RecentCallsView';
 
 interface MogReaction {
   id: number;
@@ -93,8 +92,7 @@ export default function ChatView({
 
   const onlineUsersSet = useOnlineStatusTracker(currentUserId);
 
-  // Channels, tabs and selection states
-  const [chatTab, setChatTab] = useState<'chats' | 'calls'>('chats');
+  // Channels and selection states
   const [channels, setChannels] = useState<Companion[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1158,39 +1156,16 @@ export default function ChatView({
           selectedId ? 'max-md:hidden' : 'col-span-12'
         }`}>
           
-          {/* Static Unscrollable Subsection Title & Tab Switcher Inside Sidebar */}
+          {/* Static Unscrollable Subsection Title Inside Sidebar */}
           <div className="p-3 bg-[#0c0c0e] border-b border-zinc-900/50 shrink-0 select-none flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 bg-zinc-900/80 p-1 rounded-xl border border-zinc-800/80 w-full">
-              <button
-                type="button"
-                onClick={() => setChatTab('chats')}
-                className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                  chatTab === 'chats'
-                    ? 'bg-pink-600 text-white shadow-md shadow-pink-950/40'
-                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
-                }`}
-              >
-                <MessageSquare className="w-3.5 h-3.5" />
-                <span>Chats</span>
-                {totalUnreadMessages > 0 && (
-                  <span className="bg-pink-500 text-white font-black text-[9px] px-1.5 py-0.2 rounded-full animate-pulse ml-0.5">
-                    {totalUnreadMessages}
-                  </span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setChatTab('calls')}
-                className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                  chatTab === 'calls'
-                    ? 'bg-pink-600 text-white shadow-md shadow-pink-950/40'
-                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
-                }`}
-              >
-                <PhoneCall className="w-3.5 h-3.5" />
-                <span>Call Logs</span>
-              </button>
+            <div className="flex items-center gap-2 px-2 py-1">
+              <MessageSquare className="w-4 h-4 text-pink-500" />
+              <span className="text-xs font-black text-white uppercase tracking-wider">Active Conversations</span>
+              {totalUnreadMessages > 0 && (
+                <span className="bg-pink-500 text-white font-black text-[9px] px-1.5 py-0.2 rounded-full animate-pulse ml-1">
+                  {totalUnreadMessages}
+                </span>
+              )}
             </div>
           </div>
 
@@ -1291,21 +1266,10 @@ export default function ChatView({
           </div>
         </aside>
 
-        {/* ── 📌 RIGHT PANEL: STICKY ESCROW ACTIVE CHAT MATRIX OR CALL LOGS ── */}
-        {chatTab === 'calls' ? (
-          <section className="col-span-12 md:col-span-8 h-full">
-            <RecentCallsView
-              currentUsername={currentUserId}
-              onSelectUserForChat={(userId) => {
-                setSelectedId(userId);
-                setChatTab('chats');
-              }}
-            />
-          </section>
-        ) : (
-          <section className={`col-span-12 md:col-span-8 bg-[#09090b]/60 border border-zinc-900 rounded-2xl md:rounded-3xl h-full flex flex-col overflow-hidden transition-all duration-300 ${
-            !selectedId ? 'max-md:hidden' : 'col-span-12 md:col-span-8'
-          }`}>
+        {/* ── 📌 RIGHT PANEL: STICKY ESCROW ACTIVE CHAT MATRIX ── */}
+        <section className={`col-span-12 md:col-span-8 bg-[#09090b]/60 border border-zinc-900 rounded-2xl md:rounded-3xl h-full flex flex-col overflow-hidden transition-all duration-300 ${
+          !selectedId ? 'max-md:hidden' : 'col-span-12 md:col-span-8'
+        }`}>
           {activeCompanion ? (
             <>
               {/* 👤 Chat Header (Sticky Context / Non-Scrolling) */}
@@ -1351,44 +1315,8 @@ export default function ChatView({
                   </div>
                 </div>
                 
-                {/* Action Buttons: Video Call, Call Privacy & Direct Booking */}
+                {/* Action Button: Direct Booking */}
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.dispatchEvent(new CustomEvent('open-call-privacy-modal'));
-                    }}
-                    className="bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-bold text-xs px-2.5 py-2 rounded-xl uppercase font-mono cursor-pointer transition active:scale-95"
-                    title="Configure Call Privacy & Do Not Disturb (DND)"
-                  >
-                    🛡️ Privacy
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.dispatchEvent(new CustomEvent('lounge-start-video-call', {
-                        detail: {
-                          booking: {
-                            id: `bk_call_${activeCompanion.id}_${Date.now()}`,
-                            companionId: activeCompanion.id,
-                            receiverUsername: activeCompanion.username || activeCompanion.name,
-                            receiverAvatar: activeCompanion.avatar,
-                            duration: 2,
-                            rate: activeCompanion.ratePerHour || 250,
-                            escrowDeposit: 0,
-                            isFreeCall: true,
-                            location: activeCompanion.location || 'VIP Lounge Room 1 - London Mayfair'
-                          }
-                        }
-                      }));
-                    }}
-                    className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-xs px-3 py-2 rounded-xl uppercase tracking-wider font-mono cursor-pointer flex items-center gap-1.5 transition active:scale-95"
-                    title="Launch 1-on-1 Direct Video Call Session"
-                  >
-                    <span>🎥</span> VIDEO CALL
-                  </button>
-
                   <button 
                     type="button"
                     onClick={() => handleOpenEscrowVault(activeCompanion.id)}
@@ -1889,7 +1817,6 @@ export default function ChatView({
             </div>
           )}
         </section>
-        )}
 
       </div>
 

@@ -218,26 +218,6 @@ export function HostRequestManager({ currentUserId, isPayoutVerified: _isPayoutV
 
                 {/* Dynamic Action Trigger Blocks */}
                 <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.dispatchEvent(new CustomEvent('lounge-start-video-call', {
-                        detail: {
-                          booking: {
-                            id: booking.id,
-                            duration: booking.duration_hours || 1,
-                            rate: booking.hourly_rate_at_booking || 250,
-                            location: booking.location || 'London, Mayfair',
-                            escrowDeposit: (booking.duration_hours || 1) * (booking.hourly_rate_at_booking || 250)
-                          }
-                        }
-                      }));
-                    }}
-                    className="bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 border border-pink-500/30 text-[10px] font-black uppercase px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 cursor-pointer active:scale-95 shrink-0"
-                    title="Start 1-on-1 WebRTC Video Session"
-                  >
-                    🎥 Start Video Call
-                  </button>
 
                   {(booking.status === 'pending' || booking.status === 'paid_escrow' || booking.status === 'pending_transfer') && (
                     <button

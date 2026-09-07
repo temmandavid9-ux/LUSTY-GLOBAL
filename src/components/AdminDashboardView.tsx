@@ -1,5 +1,5 @@
 import { COMPANIONS } from '../data';
-import { BarChart3, TrendingUp, CreditCard, AlertCircle, ShieldAlert, Video } from 'lucide-react';
+import { BarChart3, TrendingUp, CreditCard, AlertCircle, ShieldAlert } from 'lucide-react';
 import { Booking } from '../types';
 import { EscrowLinkCardForm } from './EscrowLinkCardForm';
 import { EscrowHistoryLog } from './EscrowHistoryLog';
@@ -10,15 +10,13 @@ interface AdminDashboardViewProps {
   escrowBalance: number;
   currentUserProfile?: any;
   onRefreshProfile?: () => void;
-  onStartVideoCall?: (booking: Booking) => void;
 }
 
 export default function AdminDashboardView({ 
   bookings, 
   escrowBalance, 
   currentUserProfile, 
-  onRefreshProfile,
-  onStartVideoCall
+  onRefreshProfile
 }: AdminDashboardViewProps) {
   // Compute analytics
   const totalBookingsCount = bookings.length;
@@ -191,22 +189,6 @@ export default function AdminDashboardView({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onStartVideoCall) {
-                            onStartVideoCall(booking);
-                          } else {
-                            window.dispatchEvent(new CustomEvent('lounge-start-video-call', { detail: { booking } }));
-                          }
-                        }}
-                        className="bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 border border-pink-500/30 text-[10px] font-black uppercase px-2.5 py-1 rounded-xl transition flex items-center gap-1 cursor-pointer active:scale-95"
-                        title="Start 1-on-1 WebRTC Video Session"
-                      >
-                        <Video className="w-3 h-3" />
-                        <span>Join Room</span>
-                      </button>
-
                       <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
                         statusStr === 'ESCROWED' || statusStr === 'PAID_ESCROW' || statusStr === 'CONFIRMED'
                           ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/20' 

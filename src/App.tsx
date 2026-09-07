@@ -15,11 +15,6 @@ import VerifiedBadge from './components/VerifiedBadge';
 import VerificationPayoutDashboard, { VerificationBadge } from './components/VerificationPayoutDashboard';
 import { PublicCompanionProfileView } from './components/PublicCompanionProfileView';
 import { RealtimeSocialModal } from './components/RealtimeSocialModal';
-import VideoCallRoomModal from './components/VideoCallRoomModal';
-import IncomingCallModal from './components/IncomingCallModal';
-import OutgoingCallModal, { OutgoingCallData } from './components/OutgoingCallModal';
-import CallPrivacyModal from './components/CallPrivacyModal';
-import { VideoCallRoomConfig, startVideoCallSession, initiateVideoCallSignal } from './services/videoCallService';
 import { ChatUnreadBadge } from './components/ChatUnreadBadge';
 import { useRealTimeNotifications } from './hooks/useRealTimeNotifications';
 import { useRealtimeWallet } from './hooks/useRealtimeWallet';
@@ -89,90 +84,6 @@ export default function App() {
   const [escrowBalance, setEscrowBalance] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
-  const [activeVideoCallConfig, setActiveVideoCallConfig] = useState<VideoCallRoomConfig | null>(null);
-  const [activeOutgoingCall, setActiveOutgoingCall] = useState<OutgoingCallData | null>(null);
-  const [showCallPrivacyModal, setShowCallPrivacyModal] = useState<boolean>(false);
-
-  // 📹 Launch 1-on-1 Video Call Handler with Ringtone Signaling
-  const handleLaunchVideoCall = async (bookingData: any) => {
-    try {
-      const senderUser = userProfile?.username || bookingData?.senderUsername || 'black';
-      const senderAv = userProfile?.avatar || bookingData?.senderAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150';
-      const receiverUser = bookingData?.receiverUsername || 'Elena_VIP';
-      const receiverAv = bookingData?.receiverAvatar || 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150';
-      const durationMins = (bookingData?.duration || 2) * 60;
-      const loc = bookingData?.location || 'VIP Lounge Room 1 - London Mayfair';
-
-      if (bookingData?.directJoin) {
-        // Direct Join room
-        const config = await startVideoCallSession({
-          bookingId: bookingData?.id || `bk_${Date.now()}`,
-          durationMinutes: durationMins,
-          senderUsername: senderUser,
-          senderAvatar: senderAv,
-          receiverUsername: receiverUser,
-          receiverAvatar: receiverAv,
-          escrowDeposit: 0,
-          isFreeCall: true,
-          location: loc
-        });
-        setActiveVideoCallConfig(config);
-        toast.success("🎥 Connected to 1-on-1 Free Video Session!", { icon: '✨' });
-      } else {
-        // Trigger Realtime Incoming Call Ringtone Notification on partner device
-        const res = await initiateVideoCallSignal({
-          bookingId: bookingData?.id || `bk_${Date.now()}`,
-          senderUsername: senderUser,
-          senderAvatar: senderAv,
-          receiverUsername: receiverUser,
-          receiverAvatar: receiverAv,
-          escrowDeposit: 0,
-          isFreeCall: true,
-          durationMinutes: durationMins,
-          location: loc
-        });
-
-        if (res && res.success === false) {
-          toast.error(res.message || "Cannot initiate call.", { duration: 5000 });
-        } else {
-          toast("📞 Outgoing free call ringing... Target device notified!", { icon: '🔔' });
-        }
-      }
-    } catch (err) {
-      console.error("Failed to launch video call session:", err);
-      toast.error("Could not launch video room session.");
-    }
-  };
-
-  useEffect(() => {
-    const handleStartCallEvent = (e: any) => {
-      const b = e.detail?.booking;
-      handleLaunchVideoCall(b);
-    };
-
-    const handleOutgoingCallEvent = (e: any) => {
-      const data = e.detail;
-      if (data) {
-        const localUsername = userProfile?.username || 'black';
-        if (data.callerUsername && data.callerUsername.toLowerCase() === localUsername.toLowerCase()) {
-          setActiveOutgoingCall(data);
-        }
-      }
-    };
-
-    const handleOpenPrivacy = () => {
-      setShowCallPrivacyModal(true);
-    };
-
-    window.addEventListener('lounge-start-video-call', handleStartCallEvent);
-    window.addEventListener('lounge-outgoing-call-signal', handleOutgoingCallEvent);
-    window.addEventListener('open-call-privacy-modal', handleOpenPrivacy);
-    return () => {
-      window.removeEventListener('lounge-start-video-call', handleStartCallEvent);
-      window.removeEventListener('lounge-outgoing-call-signal', handleOutgoingCallEvent);
-      window.removeEventListener('open-call-privacy-modal', handleOpenPrivacy);
-    };
-  }, [userProfile]);
 
   // System Theme Switcher State
   const [currentTheme, setCurrentTheme] = useState<'default' | 'vintage-neon' | 'cyber-luxe' | 'deep-void'>('default');
@@ -1436,7 +1347,6 @@ export default function App() {
             escrowBalance={escrowBalance} 
             currentUserProfile={profile}
             onRefreshProfile={fetchFullProfile}
-            onStartVideoCall={handleLaunchVideoCall}
           />
         );
       case 'verification':
@@ -1729,26 +1639,6 @@ export default function App() {
 
         {/* 4. Social Network Connections Suite */}
         <div className="pt-3 border-t border-zinc-900 mt-3 space-y-2">
-          <button
-            type="button"
-            onClick={() => {
-              setShowProfileDetails(false);
-              setShowCallPrivacyModal(true);
-            }}
-            className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-500/60 p-3 rounded-2xl text-xs font-bold text-emerald-300 hover:text-emerald-200 transition flex items-center justify-between cursor-pointer group"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/40 text-emerald-400">
-                <Lock className="w-3.5 h-3.5" />
-              </div>
-              <div className="text-left">
-                <span className="block font-bold text-zinc-100 group-hover:text-emerald-300">Call Privacy & DND</span>
-                <span className="block text-[9px] text-zinc-400 font-mono">DND Mode • Call Filters • Rate Limit</span>
-              </div>
-            </div>
-            <span className="text-[10px] bg-emerald-500 text-zinc-950 px-2.5 py-1 rounded-full font-mono font-black uppercase tracking-wider group-hover:scale-105 transition">Config →</span>
-          </button>
-
           <button
             type="button"
             onClick={() => {
@@ -2256,38 +2146,6 @@ export default function App() {
           onAddBooking={handleDirectAddBooking}
         />
       )}
-
-      {activeVideoCallConfig && (
-        <VideoCallRoomModal
-          roomConfig={activeVideoCallConfig}
-          currentUserUsername={userProfile?.username || 'black'}
-          onClose={() => setActiveVideoCallConfig(null)}
-          onCallCompleted={() => {
-            // Refresh local bookings list or state
-          }}
-        />
-      )}
-
-      <IncomingCallModal
-        currentUsername={userProfile?.username || 'black'}
-        onAcceptCall={(config) => setActiveVideoCallConfig(config)}
-      />
-
-      <OutgoingCallModal
-        outgoingCall={activeOutgoingCall}
-        currentUsername={userProfile?.username || 'black'}
-        onCancelCall={() => setActiveOutgoingCall(null)}
-        onCallAccepted={(config) => {
-          setActiveOutgoingCall(null);
-          setActiveVideoCallConfig(config);
-        }}
-      />
-
-      <CallPrivacyModal
-        username={userProfile?.username || 'black'}
-        isOpen={showCallPrivacyModal}
-        onClose={() => setShowCallPrivacyModal(false)}
-      />
 
       {userProfile?.id && (
         <UnifiedAlertListener currentUserId={userProfile.id} />
