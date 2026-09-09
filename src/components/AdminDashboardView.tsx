@@ -1,7 +1,7 @@
 import { COMPANIONS } from '../data';
 import { BarChart3, TrendingUp, CreditCard, AlertCircle, ShieldAlert } from 'lucide-react';
 import { Booking } from '../types';
-import { EscrowLinkCardForm } from './EscrowLinkCardForm';
+import { EscrowBillingPortal } from './EscrowBillingPortal';
 import { EscrowHistoryLog } from './EscrowHistoryLog';
 import { VerifiedBadge } from './VerifiedBadge';
 
@@ -81,11 +81,13 @@ export default function AdminDashboardView({
             </div>
           )}
 
-          {/* Render Credit Card Linkage Form underneath */}
+          {/* Render USDT Crypto Billing Portal underneath */}
           <div className="w-full">
-            <EscrowLinkCardForm 
-              currentUserId={currentUserProfile?.id || ""} 
-              onCardLinkedSuccess={() => {
+            <EscrowBillingPortal 
+              userId={currentUserProfile?.id || ""}
+              userEmail={currentUserProfile?.email || "client@lustyglobal.com"}
+              userName={currentUserProfile?.username || "Valued Client"}
+              onCardLinked={() => {
                 if (onRefreshProfile) onRefreshProfile();
               }} 
             />
