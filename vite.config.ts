@@ -131,7 +131,7 @@ function nowPaymentsApiPlugin(): Plugin {
 
             let data;
             if (apiKey) {
-              const response = await fetch('https://api.nowpayments.io/v1/invoice', {
+              const response = await fetch('https://api.nowpayments.io/v1/payment', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -146,6 +146,13 @@ function nowPaymentsApiPlugin(): Plugin {
                 }),
               });
               data = await response.json();
+              if (!response.ok) {
+                console.error('NOWPayments API Error:', data);
+                res.statusCode = response.status || 400;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ error: data.message || 'Payment provider rejected request', details: data }));
+                return;
+              }
             } else {
               // Sandbox / Fallback response if NOWPAYMENTS_API_KEY is not configured yet
               data = {
