@@ -30,8 +30,6 @@ export default function PrestigeBadgePortal({
         return;
       }
 
-      console.log("💎 Creating NOWPayments USDT invoice for Prestige Badge ($400)...");
-
       const response = await fetch('/api/create-payment', {
         method: 'POST',
         headers: {
@@ -49,18 +47,16 @@ export default function PrestigeBadgePortal({
         throw new Error(data.error || 'Failed to create crypto invoice');
       }
 
-      const redirectUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url;
-
-      if (redirectUrl) {
-        window.location.href = redirectUrl;
+      if (data.invoice_url) {
+        window.location.href = data.invoice_url;
       } else {
         throw new Error('No invoice URL returned from payment gateway');
       }
 
     } catch (err: any) {
-      console.error("Error during badge activation flow:", err);
-      setVerifError(err.message || "Failed to process Prestige Badge crypto activation.");
-      alert(err.message || "Failed to process Prestige Badge crypto activation.");
+      console.error("Error during badge crypto activation:", err);
+      setVerifError(err.message || "Failed to process crypto activation.");
+      alert(err.message || "Failed to process crypto activation.");
       setIsProcessing(false);
     }
   };

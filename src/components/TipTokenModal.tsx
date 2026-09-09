@@ -1,18 +1,15 @@
 import { useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 
-export default function TipTokenModal({
-  currentUserId,
-  receiverId,
-  defaultAmount = 50.00,
-  onSuccess
-}: {
-  currentUserId?: string;
-  receiverId?: string;
+export default function TipTokenModal({ 
+  currentUserId, 
+  receiverId, 
+  defaultAmount = 50.00 
+}: { 
+  currentUserId?: string; 
+  receiverId?: string; 
   defaultAmount?: number;
-  onSuccess?: () => void
 }) {
-  void onSuccess;
   const [selectedAmount, setSelectedAmount] = useState<number>(defaultAmount);
   const [isProcessing, setIsProcessing] = useState(false);
   const [tipError, setTipError] = useState('');
@@ -31,8 +28,6 @@ export default function TipTokenModal({
         return;
       }
 
-      console.log(`💎 Creating NOWPayments USDT invoice for Tip Token ($${selectedAmount})...`);
-
       const response = await fetch('/api/create-payment', {
         method: 'POST',
         headers: {
@@ -50,10 +45,8 @@ export default function TipTokenModal({
         throw new Error(data.error || 'Failed to create crypto tip invoice');
       }
 
-      const redirectUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url;
-
-      if (redirectUrl) {
-        window.location.href = redirectUrl;
+      if (data.invoice_url) {
+        window.location.href = data.invoice_url;
       } else {
         throw new Error('No invoice URL returned from payment gateway');
       }
@@ -68,7 +61,6 @@ export default function TipTokenModal({
 
   return (
     <div className="w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-4 flex flex-wrap items-center justify-between gap-3 font-sans">
-      {/* Action Button & Label */}
       <button
         type="button"
         onClick={handleSendTipCrypto}
@@ -91,7 +83,6 @@ export default function TipTokenModal({
         )}
       </button>
 
-      {/* Preset Price Selectors */}
       <div className="flex items-center gap-2">
         {tipOptions.map((amount) => {
           const isSelected = selectedAmount === amount;
@@ -106,7 +97,7 @@ export default function TipTokenModal({
                   : 'bg-zinc-950 text-zinc-400 border border-zinc-800 hover:text-white hover:border-zinc-700'
               }`}
             >
-              <span className="text-[10px] opacity-70">💳</span>
+              <span className="text-[10px] opacity-70">💎</span>
               <span>${amount}</span>
             </button>
           );
