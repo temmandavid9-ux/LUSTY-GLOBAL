@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ShieldCheck, CreditCard, Lock, Zap } from 'lucide-react';
 import { chargeSavedCardToken, getUserSavedCardToken, SavedCardInfo } from '../lib/chargeLinkedCard';
 import { supabase } from '../lib/supabase';
+import CheckoutButton from './CheckoutButton';
 
 interface SecurityPaymentGatewayProps {
   amount: number;
@@ -269,6 +270,19 @@ export default function SecurityPaymentGateway({ amount, recipientUsername, onPa
           <div className="bg-zinc-950 border border-zinc-850 p-2.5 rounded-xl text-[10px] text-zinc-400 leading-relaxed">
             🔒 <span className="font-bold text-white font-mono">PCI-DSS Security:</span> All card data is processed server-side via tokenized sandboxes. Your actual credentials are never logged or stored.
           </div>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-zinc-800"></div>
+            <span className="flex-shrink mx-2 text-[9px] text-zinc-500 uppercase font-mono">Or Pay With Crypto</span>
+            <div className="flex-grow border-t border-zinc-800"></div>
+          </div>
+
+          <CheckoutButton 
+            priceAmount={amount || 9.99} 
+            orderId={`escrow_${recipientUsername || 'user'}_${Date.now()}`}
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs py-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+            label="Pay with Crypto (USDT)"
+          />
 
           <button
             type="submit"

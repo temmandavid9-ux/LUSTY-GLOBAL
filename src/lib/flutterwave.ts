@@ -36,7 +36,7 @@ export async function initiateFlutterwavePayment(config: FlutterwavePaymentConfi
     return;
   }
 
-  const publicKey = import.meta.env.VITE_FLUTTERWAVE_PUBLIC_KEY || 'FLWPUBK-0b7a5318b3a387ddb8b414f97502ac76-X';
+  const publicKey = import.meta.env.VITE_FLUTTERWAVE_PUBLIC_KEY || '';
   if (!publicKey) {
     console.error("Flutterwave Public Key is missing in environment variables!");
     alert("Payment configuration error. Please check VITE_FLUTTERWAVE_PUBLIC_KEY.");

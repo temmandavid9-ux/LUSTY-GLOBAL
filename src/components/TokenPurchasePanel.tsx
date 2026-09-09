@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { chargeSavedCardToken, getUserSavedCardToken } from '../lib/chargeLinkedCard';
-import { Smartphone, Coins } from 'lucide-react';
+import { Smartphone, Coins, Zap } from 'lucide-react';
+import CheckoutButton from './CheckoutButton';
 
 interface TokenPurchasePanelProps {
   currentUserId: string;
@@ -184,7 +185,7 @@ export function TokenPurchasePanel({ currentUserId }: TokenPurchasePanelProps) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-4 pt-1">
+      <div className="flex items-center justify-between gap-4 pt-1 border-t border-zinc-900/60 mt-2">
         <div className="text-left">
           <h4 className="text-xs font-bold text-white flex items-center gap-1 font-mono uppercase">
             <Coins className="w-3.5 h-3.5 text-pink-500" /> Token Top-Up
@@ -206,6 +207,20 @@ export function TokenPurchasePanel({ currentUserId }: TokenPurchasePanelProps) {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* ⚡ USDT Crypto Payment Option */}
+      <div className="pt-2 border-t border-zinc-900/80 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <Zap className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="text-[10px] font-mono font-bold text-zinc-300 uppercase">Instant Crypto USDT (TRC20)</span>
+        </div>
+        <CheckoutButton 
+          priceAmount={9.99} 
+          orderId={`tokens_sub_${currentUserId || 'guest'}_${Date.now()}`} 
+          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-mono text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+          label="Pay with Crypto (USDT)" 
+        />
       </div>
     </div>
   );

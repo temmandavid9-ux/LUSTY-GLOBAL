@@ -9,7 +9,7 @@ export const linkNewCard = async (userId: string, userEmail: string, userName: s
     return;
   }
 
-  const publicKey = import.meta.env.VITE_FLUTTERWAVE_PUBLIC_KEY || 'FLWPUBK-0b7a5318b3a387ddb8b414f97502ac76-X';
+  const publicKey = import.meta.env.VITE_FLUTTERWAVE_PUBLIC_KEY || '';
   const isTestKey = publicKey.includes('TEST') || publicKey.startsWith('FLWPUBK_TEST');
 
   // Sanitize email
