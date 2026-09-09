@@ -9,7 +9,7 @@ interface CheckoutButtonProps {
 }
 
 export default function CheckoutButton({
-  priceAmount = 9.99,
+  priceAmount = 15.00,
   orderId,
   className,
   label = 'Pay with Crypto (USDT)'
@@ -29,9 +29,13 @@ export default function CheckoutButton({
       });
 
       const data = await res.json();
-      if (data.invoice_url) {
+      const redirectUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url;
+
+      if (redirectUrl) {
         toast.loading('Redirecting to NOWPayments USDT secure checkout...', { duration: 2000 });
-        window.location.href = data.invoice_url; // Redirects user to NOWPayments secure checkout page
+        window.location.href = redirectUrl; // Redirects user to NOWPayments secure checkout page
+      } else if (data.pay_address) {
+        toast.success(`Send ${data.pay_amount || priceAmount} USDT (TRC-20) to address: ${data.pay_address}`);
       } else {
         toast.error(data.error || 'Could not generate crypto invoice url');
       }

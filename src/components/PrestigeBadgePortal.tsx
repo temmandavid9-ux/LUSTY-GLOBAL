@@ -1,8 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
 import { Loader2, ShieldCheck, ChevronRight } from 'lucide-react';
-import { chargeSavedCardForEscrow } from '../lib/chargeLinkedCard';
-import { executeCardPayment } from '../utils/processPayment';
 
 export default function PrestigeBadgePortal({ 
   currentUserId, 
@@ -15,6 +12,7 @@ export default function PrestigeBadgePortal({
   profile?: any; 
   onVerifySuccess?: () => void 
 }) {
+  void onVerifySuccess;
   const [isProcessing, setIsProcessing] = useState(false);
   const [verifError, setVerifError] = useState('');
 
@@ -32,76 +30,37 @@ export default function PrestigeBadgePortal({
         return;
       }
 
-      // 1. Check if user has a valid linked payment method
-      const { data: dbProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('has_payment_method')
-        .eq('id', activeUserId)
-        .maybeSingle();
+      console.log("💎 Creating NOWPayments USDT invoice for Prestige Badge ($400)...");
 
-      if (profileError) throw profileError;
+      const response = await fetch('/api/create-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceAmount: 400.00,
+          orderId: `prestige_badge_${activeUserId}_${Date.now()}`,
+        }),
+      });
 
-      if (!dbProfile?.has_payment_method) {
-        alert("A valid credit/debit card is required to acquire the Prestige Badge. Please link a card in your profile first.");
-        setIsProcessing(false);
-        return;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create crypto invoice');
       }
 
-      // 2. Execute background token charge for $400.00
-      console.log("💳 Executing background token charge ($400) for Prestige Badge...");
-      
-      try {
-        await chargeSavedCardForEscrow(activeUserId, 400.00);
-      } catch (chargeErr: any) {
-        console.warn("chargeSavedCardForEscrow notice, executing card payment checkout fallback:", chargeErr);
-        await executeCardPayment({
-          userId: activeUserId,
-          amount: 400.00,
-          description: 'Prestige Badge Pass',
-          onSuccess: async () => {}
-        });
-      }
+      const redirectUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url;
 
-      const badgeTxRef = `BADGE-PASS-${Date.now()}`;
-
-      // 3. Update the companion's profile in Supabase to grant the badge
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ 
-          is_verified: true, 
-          badge_status: 'prestige_active',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', activeUserId);
-
-      if (updateError) {
-        throw new Error("Payment captured, but database profile update failed: " + updateError.message);
-      }
-
-      // 4. Log the transaction in your audit history table
-      await supabase.from('transaction_history').insert([{
-        sender_id: activeUserId,
-        receiver_id: activeUserId, 
-        transaction_type: 'prestige_badge',
-        status: 'completed',
-        gross_amount: 400.00,
-        platform_fee: 400.00,
-        net_payout: 0,
-        tx_ref: badgeTxRef
-      }]);
-
-      alert("🎉 Prestige Badge successfully activated! Your blue validation badge is now live.");
-      if (onVerifySuccess) {
-        onVerifySuccess();
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
       } else {
-        window.location.reload(); // Refresh to display the new badge state
+        throw new Error('No invoice URL returned from payment gateway');
       }
 
     } catch (err: any) {
       console.error("Error during badge activation flow:", err);
-      setVerifError(err.message || "Failed to process Prestige Badge activation.");
-      alert(err.message || "Failed to process Prestige Badge activation.");
-    } finally {
+      setVerifError(err.message || "Failed to process Prestige Badge crypto activation.");
+      alert(err.message || "Failed to process Prestige Badge crypto activation.");
       setIsProcessing(false);
     }
   };
@@ -144,7 +103,7 @@ export default function PrestigeBadgePortal({
             {isProcessing ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
-                <span>Processing $400 Charge...</span>
+                <span>Generating USDT Invoice...</span>
               </>
             ) : (
               <>

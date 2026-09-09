@@ -216,7 +216,7 @@ export function TokenPurchasePanel({ currentUserId }: TokenPurchasePanelProps) {
           <span className="text-[10px] font-mono font-bold text-zinc-300 uppercase">Instant Crypto USDT (TRC20)</span>
         </div>
         <CheckoutButton 
-          priceAmount={9.99} 
+          priceAmount={15.00} 
           orderId={`tokens_sub_${currentUserId || 'guest'}_${Date.now()}`} 
           className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-mono text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
           label="Pay with Crypto (USDT)" 

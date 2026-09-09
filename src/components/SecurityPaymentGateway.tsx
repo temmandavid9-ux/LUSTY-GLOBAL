@@ -278,7 +278,7 @@ export default function SecurityPaymentGateway({ amount, recipientUsername, onPa
           </div>
 
           <CheckoutButton 
-            priceAmount={amount || 9.99} 
+            priceAmount={amount && amount >= 15 ? amount : 15.00} 
             orderId={`escrow_${recipientUsername || 'user'}_${Date.now()}`}
             className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs py-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
             label="Pay with Crypto (USDT)"

@@ -6,6 +6,7 @@ import { executeCardPayment } from '../utils/processPayment';
 import { chargeLinkedCard } from '../lib/chargeLinkedCard';
 
 interface BoostTier {
+  id?: string;
   name: string;
   durationText: string;
   durationHours: number;
@@ -307,7 +308,45 @@ export function HostVisibilityBoostPanel({
     }
   };
 
-  const handleConfirmAndPay = () => handleBoostCampaign();
+  // Retain handleBoostCampaign reference for manual card processing fallback
+  void handleBoostCampaign;
+
+  const handleConfirmAndPay = async () => {
+    if (!confirmModalTier) return;
+    setIsCharging(true);
+
+    try {
+      const response = await fetch('/api/create-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceAmount: confirmModalTier.price,
+          orderId: `boost_${confirmModalTier.id || confirmModalTier.name.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create crypto invoice');
+      }
+
+      const invoiceUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url;
+
+      // Redirect user straight to the NOWPayments USDT checkout page
+      if (invoiceUrl) {
+        window.location.href = invoiceUrl;
+      } else {
+        throw new Error('No invoice URL returned from payment gateway');
+      }
+    } catch (err: any) {
+      console.error('Payment routing error:', err);
+      alert(`Payment Initialization Failed: ${err.message}`);
+      setIsCharging(false);
+    }
+  };
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 md:p-8 w-full font-sans text-white text-left relative overflow-hidden">

@@ -131,6 +131,9 @@ function nowPaymentsApiPlugin(): Plugin {
 
             let data;
             if (apiKey) {
+              const requested = Number(priceAmount) || 15;
+              const finalAmount = Math.max(requested, 15);
+
               const response = await fetch('https://api.nowpayments.io/v1/payment', {
                 method: 'POST',
                 headers: {
@@ -138,7 +141,7 @@ function nowPaymentsApiPlugin(): Plugin {
                   'x-api-key': apiKey,
                 },
                 body: JSON.stringify({
-                  price_amount: priceAmount || 9.99,
+                  price_amount: finalAmount,
                   price_currency: 'usd',
                   pay_currency: 'usdttrc20',
                   order_id: orderId || 'sub_' + Date.now(),
@@ -146,19 +149,40 @@ function nowPaymentsApiPlugin(): Plugin {
                 }),
               });
               data = await response.json();
+
               if (!response.ok) {
                 console.error('NOWPayments API Error:', data);
-                res.statusCode = response.status || 400;
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ error: data.message || 'Payment provider rejected request', details: data }));
-                return;
+                if (data.code === 'AMOUNT_MINIMAL_ERROR') {
+                  const retryRes = await fetch('https://api.nowpayments.io/v1/payment', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'x-api-key': apiKey,
+                    },
+                    body: JSON.stringify({
+                      price_amount: 15.00,
+                      price_currency: 'usd',
+                      pay_currency: 'usdttrc20',
+                      order_id: orderId || 'sub_' + Date.now(),
+                      ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
+                    }),
+                  });
+                  data = await retryRes.json();
+                }
+
+                if (!data.payment_id && !data.invoice_url) {
+                  res.statusCode = response.status || 400;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ error: data.message || 'Payment provider rejected request', details: data }));
+                  return;
+                }
               }
             } else {
               // Sandbox / Fallback response if NOWPAYMENTS_API_KEY is not configured yet
               data = {
                 id: 'np_inv_' + Date.now(),
                 order_id: orderId || 'sub_' + Date.now(),
-                price_amount: priceAmount || 9.99,
+                price_amount: priceAmount || 15.00,
                 price_currency: 'usd',
                 pay_currency: 'usdttrc20',
                 invoice_url: `https://nowpayments.io/payment/?iid=${Date.now()}`,

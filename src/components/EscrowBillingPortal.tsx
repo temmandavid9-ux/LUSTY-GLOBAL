@@ -101,7 +101,7 @@ export const EscrowBillingPortal: React.FC<BillingPortalProps> = ({
       <div className="pt-4 border-t border-gray-800 flex flex-col items-center gap-2">
         <span className="text-xs font-mono text-gray-400 uppercase">Proceed to Instant USDT Checkout</span>
         <CheckoutButton 
-          priceAmount={9.99}
+          priceAmount={15.00}
           orderId={`escrow_sub_${userId || 'guest'}_${Date.now()}`}
           className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-blue-600/20"
         />
