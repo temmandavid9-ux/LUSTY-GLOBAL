@@ -1,683 +1,111 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
-import { Clock, Heart, Flame, Eye } from 'lucide-react';
-import { Companion, Booking } from '../types';
-import { motion } from 'motion/react';
-import { initiateFlutterwavePayment } from '../lib/flutterwave';
-import { chargeLinkedCard } from '../lib/chargeLinkedCard';
-import { OptimizedImage } from './OptimizedImage';
-import { formatMetricCount } from '../utils/formatMetrics';
-import HostBookingModal from './HostBookingModal';
+import { Star, ShieldCheck, Calendar, MessageSquare, Lock } from 'lucide-react';
+import ProposeRendezvousModal from './ProposeRendezvousModal';
 
 interface CompanionDirectoryCardProps {
-  companion: Companion;
-  currentUserId: string;
+  companion: any;
   onStartChat: (companionId: string) => void;
+  currentUser?: any;
+  currentUserId?: string;
+  isFavorite?: boolean;
+  isFavorited?: boolean;
+  onToggleFavorite?: (id: string, e: React.MouseEvent) => void;
   onWalletDeduction?: (amount: number) => void;
-  onAddBooking: (booking: Booking) => void;
-  isFavorited: boolean;
-  onToggleFavorite: (companionId: string, e: React.MouseEvent) => void;
+  onAddBooking?: (booking: any) => void;
 }
 
-export function CompanionDirectoryCard({ 
-  companion, 
-  currentUserId, 
-  onStartChat, 
-  onWalletDeduction: _onWalletDeduction,
-  onAddBooking,
+export function CompanionDirectoryCard({
+  companion,
+  onStartChat,
+  currentUser: _currentUser,
+  currentUserId: _currentUserId,
+  isFavorite,
   isFavorited,
-  onToggleFavorite
+  onToggleFavorite,
+  onWalletDeduction: _onWalletDeduction,
+  onAddBooking: _onAddBooking
 }: CompanionDirectoryCardProps) {
-  const [showBookingPanel, setShowBookingPanel] = useState(false);
-  const [isBooking, setIsBooking] = useState(false);
-  const [bookingHours, setBookingHours] = useState(1);
-  const [bookingFeedback, setBookingFeedback] = useState<{ type: 'success' | 'error' | 'card_required'; message: string } | null>(null);
-  const [showHostBookingModal, setShowHostBookingModal] = useState(false);
-
-  const handleExecuteBooking = async () => {
-    if (isBooking) return;
-    setIsBooking(true);
-    setBookingFeedback(null);
-
-    const basePrice = companion.ratePerHour * bookingHours;
-    const bookerFee = 1.00;
-    const totalCost = basePrice + bookerFee;
-
-    try {
-      if (!currentUserId) {
-        throw new Error("Please log in or register to establish secure escrow channels.");
-      }
-
-      // 1. Fetch user's profile to verify a physical debit card is attached
-      const { data: userProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('has_payment_method, card_brand_last4')
-        .eq('id', currentUserId)
-        .maybeSingle();
-
-      if (profileError) throw profileError;
-
-      // 🔍 Card Requirement Interceptor Check
-      if (!userProfile?.has_payment_method) {
-        setBookingFeedback({
-          type: 'card_required',
-          message: "A valid credit/debit card is required to secure escrow before booking. Please link a card in your Escrow Vault or Profile billing tab."
-        });
-        setIsBooking(false);
-        return;
-      }
-
-      // Get current user email for checkout
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      const userEmail = currentUser?.email || "vipmember@gmail.com";
-
-      const processBookingSuccess = async (paymentGatewayRef: string) => {
-        const grossAmount = basePrice;
-
-        // 1. Instantly show success UI and update frontend booking state (non-blocking)
-        const tempBookingId = crypto.randomUUID();
-        const createdBooking: Booking = {
-          id: tempBookingId,
-          companionId: companion.id,
-          date: new Date().toLocaleDateString(),
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          duration: bookingHours,
-          rate: companion.ratePerHour,
-          location: companion.location,
-          status: 'paid_escrow',
-          notes: 'Secure platform-managed escrow custody hold'
-        };
-
-        onAddBooking(createdBooking);
-
-        setBookingFeedback({
-          type: 'success',
-          message: `Payment Confirmed! $${totalCost.toFixed(2)} is held in Platform Escrow. The booking request has been sent to @${companion.username} (Status: paid_escrow).`
-        });
-
-        setIsBooking(false);
-
-        // Auto collapse panel after success delay
-        setTimeout(() => {
-          setShowBookingPanel(false);
-          setBookingFeedback(null);
-        }, 5000);
-
-        // 2. Perform DB write with a 5-second timeout safety net in the background
-        const insertPromise = (async () => {
-          const bookingRow = {
-            id: tempBookingId,
-            companion_id: companion.id,
-            client_id: currentUserId,
-            booking_date: new Date().toISOString(),
-            duration_hours: bookingHours,
-            hourly_rate_at_booking: companion.ratePerHour,
-            gross_amount: grossAmount,
-            status: 'paid_escrow',
-            escrow_status: 'held', // Secured instantly in the platform's custody wallet
-          };
-
-          const { data: bookingData, error: bookingError } = await supabase
-            .from('bookings')
-            .insert([bookingRow])
-            .select()
-            .maybeSingle();
-
-          // Also attempt insert into booking_ledgers for dual-table durability
-          try {
-            await supabase.from('booking_ledgers').insert([bookingRow]);
-          } catch (ledgerErr) {
-            console.warn("Dual write to booking_ledgers notice:", ledgerErr);
-          }
-
-          if (bookingError) throw bookingError;
-          console.log("Successfully logged escrow booking to ledger database:", bookingData);
-
-          // Log unified audit history
-          try {
-            await supabase.from('transaction_history').insert([{
-              sender_id: currentUserId,
-              receiver_id: companion.id,
-              transaction_type: 'booking',
-              status: 'paid_escrow',
-              gross_amount: grossAmount,
-              platform_fee: grossAmount * 0.15,
-              net_payout: grossAmount * 0.85,
-              tx_ref: paymentGatewayRef
-            }]);
-          } catch (histErr) {
-            console.warn("Unified transaction log error (ignored):", histErr);
-          }
-        })();
-
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Ledger write timed out')), 5000)
-        );
-
-        try {
-          await Promise.race([insertPromise, timeoutPromise]);
-        } catch (err: any) {
-          console.error("Ledger write timed out, but payment was captured:", err);
-          try {
-            await supabase.from('payment_errors').insert([{
-              tx_ref: paymentGatewayRef,
-              amount: grossAmount,
-              error_msg: `Booking Ledger Error: ${err.message || 'Timeout'}`
-            }]);
-          } catch (logErr) {
-            console.warn("Failed to log to payment_errors table:", logErr);
-          }
-        }
-      };
-
-      // 🎯 Attempt 1-Click Debit with Linked Card Token First
-      try {
-        const tokenChargeResult = await chargeLinkedCard({
-          userId: currentUserId,
-          userEmail,
-          amount: totalCost,
-          currency: 'USD'
-        });
-
-        if (tokenChargeResult?.success) {
-          console.log("⚡ 1-Click Linked Card Debit Succeeded!", tokenChargeResult);
-          await processBookingSuccess(tokenChargeResult.data?.txRef || tokenChargeResult.data?.tx_ref || `TOK-${Date.now()}`);
-          return;
-        }
-      } catch (tokenErr: any) {
-        console.log("1-Click linked card debit unavailable or deferred:", tokenErr?.message);
-      }
-
-      // 🎯 Fallback: Launch Flutterwave Gateway Checkout Modal with Pre-recorded Ledger Entry
-      console.log(`Spinning up secure Flutterwave checkout for $${totalCost.toFixed(2)} to main platform wallet...`);
-
-      const generatedTxRef = `TX-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-      const grossAmount = basePrice;
-
-      // STEP ONE: Pre-create pending booking record in Supabase IN ADVANCE
-      const bookingUuid = crypto.randomUUID();
-      const preBookingRow = {
-        id: bookingUuid,
-        companion_id: companion.id,
-        client_id: currentUserId,
-        booking_date: new Date().toISOString(),
-        duration_hours: bookingHours,
-        hourly_rate_at_booking: companion.ratePerHour,
-        gross_amount: grossAmount,
-        status: 'pending_transfer',
-        escrow_status: 'held',
-        payment_method: 'bank_transfer',
-        tx_ref: generatedTxRef
-      };
-
-      const { data: preBooking } = await supabase
-        .from('bookings')
-        .insert([preBookingRow])
-        .select()
-        .maybeSingle();
-
-      try {
-        await supabase.from('booking_ledgers').insert([preBookingRow]);
-      } catch (ledgerErr) {
-        console.warn("Dual pre-booking write notice:", ledgerErr);
-      }
-
-      // Log to transaction_history
-      try {
-        await supabase.from('transaction_history').insert([{
-          sender_id: currentUserId,
-          receiver_id: companion.id,
-          transaction_type: 'booking',
-          status: 'pending_transfer',
-          gross_amount: grossAmount,
-          platform_fee: grossAmount * 0.15,
-          net_payout: grossAmount * 0.85,
-          tx_ref: generatedTxRef
-        }]);
-      } catch (histErr) {
-        console.warn("Pre-booking audit log notice:", histErr);
-      }
-
-      // Show immediately in frontend UI state
-      const preBookingId = preBooking?.id || bookingUuid;
-      const pendingBooking: Booking = {
-        id: preBookingId,
-        companionId: companion.id,
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        duration: bookingHours,
-        rate: companion.ratePerHour,
-        location: companion.location,
-        status: 'pending_transfer',
-        notes: 'Pending bank transfer settlement / Escrow processing'
-      };
-      onAddBooking(pendingBooking);
-
-      await initiateFlutterwavePayment({
-        amount: totalCost,
-        currency: "USD",
-        email: userEmail,
-        name: currentUser?.user_metadata?.full_name || "VIP Member",
-        description: `Booking escrow of ${bookingHours} hours with @${companion.username}`,
-        txRef: generatedTxRef,
-        meta: {
-          client_id: currentUserId,
-          companion_id: companion.id,
-          booking_amount_usd: grossAmount,
-        },
-        callback: async (response: any) => {
-          if (response.status === "successful" || response.status === "completed" || response.success) {
-            const paymentGatewayRef = response.transaction_id || response.tx_ref || generatedTxRef;
-            
-            // Update booking status on successful payment
-            const targetTxRef = response.tx_ref || generatedTxRef;
-            const { error: bookingUpdateErr } = await supabase
-              .from('bookings')
-              .update({
-                status: 'funded',
-                escrow_status: 'held'
-              })
-              .eq('tx_ref', targetTxRef);
-
-            if (bookingUpdateErr) {
-              console.error('Failed to update booking status:', bookingUpdateErr.message);
-            }
-
-            try {
-              await supabase
-                .from('transaction_history')
-                .update({ status: 'paid_escrow', tx_ref: paymentGatewayRef })
-                .eq('tx_ref', generatedTxRef);
-            } catch (histErr) {
-              console.warn("Transaction history update notice:", histErr);
-            }
-
-            setBookingFeedback({
-              type: 'success',
-              message: `Payment Confirmed! $${totalCost.toFixed(2)} is held in Platform Escrow. The booking request has been sent to @${companion.username} (Status: paid_escrow).`
-            });
-
-            setIsBooking(false);
-
-            setTimeout(() => {
-              setShowBookingPanel(false);
-              setBookingFeedback(null);
-            }, 5000);
-          } else {
-            setBookingFeedback({
-              type: 'error',
-              message: "Flutterwave booking authorization failed or was declined."
-            });
-            setIsBooking(false);
-          }
-        },
-        onClose: () => {
-          setIsBooking(false);
-          console.log("Flutterwave booking modal closed.");
-          setBookingFeedback({
-            type: 'success',
-            message: `Bank transfer booking submitted! Status: pending_transfer. You can view it in your Booking History.`
-          });
-          setTimeout(() => {
-            setShowBookingPanel(false);
-            setBookingFeedback(null);
-          }, 4000);
-        }
-      });
-
-    } catch (error: any) {
-      console.error("Booking transaction execution error:", error);
-      setBookingFeedback({
-        type: 'error',
-        message: error.message || "Failed to establish secure escrow booking channel."
-      });
-      setIsBooking(false);
-    }
-  };
-
-  void handleExecuteBooking;
-
-  const isOfflineOver24Hours = () => {
-    if (companion.isOnline) return false;
-    if (!companion.lastSeen) {
-      const seed = companion.id ? companion.id.charCodeAt(companion.id.length - 1) % 12 : 3;
-      const hours = seed + 1;
-      return hours >= 24;
-    }
-    try {
-      const lastSeenDate = new Date(companion.lastSeen);
-      const diffMs = Date.now() - lastSeenDate.getTime();
-      if (isNaN(diffMs)) return false;
-      const diffHours = Math.floor(diffMs / (60 * 60 * 1000));
-      return diffHours >= 24;
-    } catch (e) {
-      return false;
-    }
-  };
-
-  const getLastOnlineText = () => {
-    if (companion.isOnline) return 'Active now';
-    if (!companion.lastSeen) {
-      // Consistent time representation using the ID char code seed
-      const seed = companion.id ? companion.id.charCodeAt(companion.id.length - 1) % 12 : 3;
-      const hours = seed + 1;
-      return `${hours}h ago`;
-    }
-    
-    try {
-      const lastSeenDate = new Date(companion.lastSeen);
-      const diffMs = Date.now() - lastSeenDate.getTime();
-      if (isNaN(diffMs) || diffMs < 0) return 'Recent';
-      
-      const diffMins = Math.floor(diffMs / (60 * 1000));
-      if (diffMins < 60) {
-        return `${Math.max(1, diffMins)}m ago`;
-      }
-      
-      const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) {
-        return `${diffHours}h ago`;
-      }
-      
-      const diffDays = Math.floor(diffHours / 24);
-      if (diffDays < 7) {
-        return `${diffDays}d ago`;
-      }
-      
-      return lastSeenDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    } catch (e) {
-      return '1d ago';
-    }
-  };
-
-  const getViewCountText = () => {
-    // Generate static stable view count based on username seed, hourly rate, and reviewsCount
-    const nameSeed = companion.username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const baseViews = (companion.reviewsCount || 10) * 195 + (companion.ratePerHour || 150) * 4 + nameSeed * 3;
-    return formatMetricCount(baseViews);
-  };
-
-  const isTrending = companion.reviewsCount > 25 || companion.isOnline || companion.isVIP;
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const activeFavorite = isFavorite ?? isFavorited ?? false;
 
   return (
-    <motion.div 
-      id={`companion-card-${companion.id}`}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ scale: 1.025, y: -4 }}
-      transition={{ 
-        opacity: { duration: 0.35, ease: "easeOut" },
-        y: { duration: 0.35, ease: "easeOut" },
-        scale: { type: "spring", stiffness: 350, damping: 20 },
-        default: { ease: "linear" }
-      }}
-      className="group relative flex flex-col overflow-hidden rounded-2xl bg-[#120d1a] border border-zinc-900 transition-colors duration-300 hover:border-zinc-700 cursor-pointer flex-grow"
-    >
-      {/* 📸 Host Image & Top Badges Layer */}
-      <div className="relative aspect-square w-full overflow-hidden bg-zinc-950">
-        <OptimizedImage 
-          src={companion.images[0]} 
-          alt={companion.name} 
-          width={400}
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-        />
+    <>
+      <div className="bg-[#0e1117] border border-zinc-800 rounded-3xl p-5 space-y-4 font-sans text-white shadow-xl relative flex flex-col justify-between text-left">
         
-        {/* Top Floating Status Badges */}
-        <div className="absolute top-2 left-2 right-2 flex flex-wrap gap-1 items-center justify-between pointer-events-none">
-          {companion.isVIP && (
-            <span className="bg-[#ff2d55] text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm tracking-wide uppercase scale-90 origin-left shadow">
-              VIP SELECT
-            </span>
-          )}
-          {companion.isOnline ? (
-            <span className="bg-[#00cc76] text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm scale-90 origin-right flex items-center gap-1 shadow ml-auto">
-              <span className="w-1 h-1 bg-white rounded-full animate-ping" />
-              ONLINE
-            </span>
-          ) : isOfflineOver24Hours() ? (
-            <span className="bg-red-500/15 border border-red-500/25 text-red-400 text-[8px] font-black px-1.5 py-0.5 rounded-sm scale-90 origin-right ml-auto shadow flex items-center gap-1 font-mono">
-              <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-              OFFLINE ({getLastOnlineText().toUpperCase()})
-            </span>
-          ) : (
-            <span className="bg-zinc-800/90 text-zinc-300 text-[8px] font-black px-1.5 py-0.5 rounded-sm scale-90 origin-right ml-auto shadow flex items-center gap-1 font-mono">
-              <span className="w-1 h-1 bg-zinc-500 rounded-full" />
-              {getLastOnlineText().toUpperCase()}
-            </span>
-          )}
-        </div>
-
-        {/* Bottom Floating Hourly Rate */}
-        <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded-md border border-zinc-850/80 text-center">
-          <p className="text-[7px] uppercase tracking-wider text-zinc-400 font-bold leading-none">Hourly Rate</p>
-          <p className="text-emerald-400 text-[11px] font-black mt-0.5">${companion.ratePerHour}</p>
-        </div>
-
-        {/* ❤️ Interactive Favorite Toggle Button overlay */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onToggleFavorite(companion.id, e);
-          }}
-          className={`absolute bottom-2 left-2 p-1.5 rounded-full backdrop-blur-sm border transition-all duration-200 active:scale-95 flex items-center justify-center cursor-pointer z-10 ${
-            isFavorited 
-              ? 'bg-pink-500/90 border-pink-500 text-white shadow-[0_0_8px_rgba(236,72,153,0.6)]' 
-              : 'bg-black/60 border-zinc-800 text-zinc-400 hover:text-pink-400 hover:bg-black/80'
-          }`}
-          title={isFavorited ? "Remove from Favorites" : "Add to Favorites"}
-        >
-          <Heart className={`w-3.5 h-3.5 ${isFavorited ? 'fill-current text-white' : ''}`} />
-        </button>
-      </div>
-
-      {/* 📝 Info & Details Section */}
-      <div className="p-3 flex flex-col flex-grow text-left justify-between">
+        {/* Top Info & Favorite Toggle */}
         <div>
-          {/* Name & Verification Badge */}
-          <div className="flex items-center justify-between gap-1">
-            <h3 className="text-white font-bold text-xs truncate">
-              @{companion.username}
-            </h3>
-            {companion.isVIP && (
-              <svg 
-                viewBox="0 0 24 24" 
-                className="w-3.5 h-3.5 text-[#1d9bf0] fill-current drop-shadow-[0_0_6px_rgba(29,155,240,0.4)] shrink-0"
-                aria-label="Verified creator"
-              >
-                <path d="M22.25 12c0-1.43-.88-2.67-2.15-3.21.15-.44.24-.91.24-1.4 0-2.2-1.72-4-3.83-4-.48 0-.94.1-1.35.27C14.56 2.39 13.38 1.5 12 1.5s-2.56.89-3.16 2.16c-.41-.17-.87-.27-1.35-.27-2.11 0-3.83 1.8-3.83 4 0 .49.09.96.24 1.4-1.27.54-2.15 1.78-2.15 3.21 0 1.43.88 2.67 2.15 3.21-.15.44-.24.91-.24 1.4 0 2.2 1.72 4 3.83 4 .48 0 .94-.1 1.35-.27.6 1.27 1.78 2.16 3.16 2.16s2.56-.89 3.16-2.16c.41.17.87.27 1.35.27 2.11 0 3.83-1.8 3.83-4 0-.49-.09-.96-.24-1.4 1.27-.54 2.15-1.78 2.15-3.21zm-12.5 4L6 12.25l1.5-1.5 2.25 2.25L16.25 6.5l1.5 1.5-8 8z" />
-              </svg>
-            )}
-          </div>
-
-          {/* Rating & Popularity Info Row */}
-          <div className="flex items-center justify-between gap-1.5 mt-1 select-none">
-            <div className="flex items-center gap-1 shrink-0">
-              <span className="text-amber-400 text-[10px]">⭐</span>
-              <span className="text-white text-[10px] font-bold">
-                {(companion.isVIP || companion.is_verified || companion.isVerified) ? "5.0" : (companion.avg_rating ? companion.avg_rating.toFixed(1) : (companion.rating ? companion.rating.toFixed(1) : "5.0"))}
-              </span>
-              <span className="text-zinc-500 text-[9px]">({companion.reviewsCount})</span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="font-extrabold font-mono text-base">@{companion.name || companion.username}</span>
+              <ShieldCheck className="w-4 h-4 text-sky-400" />
             </div>
+            <button 
+              type="button"
+              onClick={(e) => onToggleFavorite?.(companion.id, e)}
+              className="text-zinc-400 hover:text-pink-500 transition p-1 cursor-pointer"
+            >
+              <span className={`text-sm ${activeFavorite ? 'text-pink-500 font-bold' : ''}`}>♥</span>
+            </button>
+          </div>
 
-            <div className="flex items-center gap-1.5 font-mono">
-              <div className="flex items-center gap-0.5 bg-zinc-950/85 border border-zinc-900 px-1.5 py-0.5 rounded-md text-zinc-400">
-                <Eye className="w-2.5 h-2.5 text-zinc-500 shrink-0" />
-                <span className="text-[8.5px] font-bold">{getViewCountText()}</span>
-              </div>
-              {isTrending && (
-                <div className="flex items-center gap-0.5 bg-pink-500/10 border border-pink-500/20 text-[#ff2d55] text-[7px] font-extrabold px-1 py-0.5 rounded-md uppercase tracking-wider animate-pulse shrink-0">
-                  <Flame className="w-2 h-2 fill-current shrink-0" />
-                  <span>TRENDING</span>
-                </div>
-              )}
+          {/* Ratings & Status */}
+          <div className="flex items-center gap-3 text-xs font-mono text-zinc-400 mb-3">
+            <div className="flex items-center gap-1 text-amber-400 font-bold">
+              <Star className="w-3.5 h-3.5 fill-amber-400" />
+              <span>{companion.rating || '5.0'}</span>
             </div>
+            <span>•</span>
+            <span className="text-zinc-300">${companion.ratePerHour || 250}/hr</span>
           </div>
 
-          {/* Location Info */}
-          <div className="flex items-center gap-1 text-zinc-400 text-[10px] truncate mt-1">
-            <span className="truncate">📍 {companion.location}</span>
-            <span className="text-zinc-600">•</span>
-            <span className="shrink-0">{companion.distance}</span>
+          <div className="text-xs text-zinc-300 bg-zinc-950 p-3 border border-zinc-850 rounded-2xl flex items-center gap-2 mb-3">
+            <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Verified VIP guest. Rates available on demand</span>
           </div>
-
-          {/* 1. Display the Companion Biography */}
-          <p className="text-zinc-300 text-[11px] mt-2 line-clamp-2 leading-relaxed">
-            {companion.bio || "No biography provided."}
-          </p>
-
-          {/* 2. Display the Age and Height */}
-          <div className="flex gap-3 mt-1.5 text-[10px] text-zinc-400 font-medium">
-            {companion.age && (
-              <span>Age: {companion.age}</span>
-            )}
-            {companion.height && (
-              <span>• Height: {companion.height}</span>
-            )}
-          </div>
-
-          {/* Last Online Row */}
-          <div className="flex items-center gap-1 text-zinc-500 text-[10px] mt-1 font-medium">
-            <Clock className="w-3 h-3 text-zinc-600 shrink-0" />
-            <span className="text-zinc-500 text-[8.5px] font-bold uppercase tracking-wider">Last Online:</span>
-            <span className={companion.isOnline ? "text-emerald-400 font-bold" : "text-zinc-300 font-semibold"}>
-              {getLastOnlineText()}
-            </span>
-          </div>
-          
-          <p className="text-[#ff2d55] text-[9px] font-medium truncate mt-1">
-            Lounge Live Broadcaster
-          </p>
-
-          {/* Optional: Compact compact tags line */}
-          {companion.tags && companion.tags.length > 0 && (
-            <p className="text-zinc-500 text-[9px] line-clamp-1 mt-1 font-mono uppercase">
-              #{companion.tags.slice(0, 2).join(' #')}
-            </p>
-          )}
         </div>
 
-        {/* Dynamic Booking Expansion Panel */}
-        {showBookingPanel && (
-          <div className="mt-3 p-2 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2.5 animate-fade-in text-sans text-[10px]">
-            <div className="flex items-center justify-between gap-2 pb-2 border-b border-zinc-900/60">
-              <div>
-                <label className="text-[8px] uppercase text-zinc-500 font-bold block mb-0.5 font-mono tracking-wider flex items-center gap-0.5">
-                  <Clock className="w-2.5 h-2.5 text-pink-400" />
-                  <span>Duration</span>
-                </label>
-                <select 
-                  value={bookingHours} 
-                  onChange={(e) => setBookingHours(Number(e.target.value))}
-                  className="bg-zinc-900 border border-zinc-800 rounded-md text-[9px] text-white px-1 py-0.5 font-mono focus:outline-none focus:border-pink-500 cursor-pointer pointer-events-auto"
-                  disabled={isBooking}
-                >
-                  {[1, 2, 3, 4, 6, 8, 12, 24].map((hr) => (
-                    <option key={hr} value={hr}>{hr} {hr === 1 ? 'Hour' : 'Hours'}</option>
-                  ))}
-                </select>
-              </div>
+        {/* Action Buttons */}
+        <div className="pt-2 space-y-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsBookingModalOpen(true);
+            }}
+            className="w-full font-extrabold text-[10px] uppercase tracking-wider py-3 rounded-xl transition-all shadow-md cursor-pointer pointer-events-auto bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black flex items-center justify-center gap-1 shadow-amber-950/20 active:scale-[0.98]"
+          >
+            <Calendar className="w-4 h-4" />
+            <span>BOOKING (${companion.ratePerHour || 250}/hr)</span>
+          </button>
 
-              <div className="text-right">
-                <span className="text-[8px] uppercase text-zinc-500 font-bold block mb-0.5 font-mono tracking-wider">
-                  Hourly Rate
-                </span>
-                <span className="text-zinc-300 font-mono text-[9px]">${companion.ratePerHour}/hr</span>
-              </div>
-            </div>
-
-            {/* Booking Summary Invoice Details */}
-            <div className="space-y-1 border-b border-zinc-900/60 pb-2 text-[9px] font-sans">
-              <div className="flex justify-between text-zinc-400">
-                <span>Rate ({bookingHours}h)</span>
-                <span className="font-mono text-zinc-200">${(companion.ratePerHour * bookingHours).toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-zinc-500">
-                <span>Booker Fee</span>
-                <span className="font-mono text-zinc-300">+$1.00</span>
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center pb-0.5">
-              <span className="text-[9px] font-bold text-white uppercase tracking-tight">Total</span>
-              <span className="text-xs font-mono font-black text-emerald-400">
-                ${(companion.ratePerHour * bookingHours + 1.00).toFixed(2)}
-              </span>
-            </div>
-
-             {/* 🚀 Confirm Secure Booking Trigger */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowHostBookingModal(true);
-              }}
-              className="w-full py-1.5 rounded-lg font-black text-[8px] uppercase tracking-wider transition-all duration-200 pointer-events-auto flex items-center justify-center gap-1 bg-pink-600 hover:bg-pink-700 text-white active:scale-[0.98] cursor-pointer"
+          <div className="grid grid-cols-2 gap-2">
+            <button 
+              type="button"
+              onClick={() => onStartChat(companion.id)}
+              className="py-2.5 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 flex items-center justify-center gap-1.5 transition cursor-pointer"
             >
-              <span>Authorize Escrow</span>
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Chat</span>
             </button>
-
-            {/* Dynamic Stripe / Card Error Fallbacks */}
-            {bookingFeedback?.type === 'card_required' && (
-              <div className="mt-2 p-2 rounded-lg text-[9px] bg-amber-950/40 border border-amber-800 text-amber-400">
-                <p className="font-bold">💳 Card Required</p>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.location.hash = '#escrow-vault';
-                  }}
-                  className="mt-1 text-[9px] font-black text-pink-400 hover:underline block text-left"
-                >
-                  Link Card in Vault →
-                </button>
-              </div>
-            )}
-
-            {/* Processing Feedback Alert for regular success/error */}
-            {bookingFeedback && bookingFeedback.type !== 'card_required' && (
-              <div className={`p-1.5 rounded-lg text-[8px] font-mono leading-relaxed border ${
-                bookingFeedback.type === 'success' 
-                  ? 'bg-emerald-950/40 border-emerald-850 text-emerald-400' 
-                  : 'bg-red-950/40 border-red-850 text-red-400'
-              }`}>
-                {bookingFeedback.message}
-              </div>
-            )}
+            <button 
+              type="button"
+              className="py-2.5 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 flex items-center justify-center gap-1.5 transition cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span>Cancel</span>
+            </button>
           </div>
-        )}
-
-        {/* 🔘 Action Buttons: Stacked cleanly for small column widths */}
-        <div className="flex flex-col gap-1.5 mt-3 w-full">
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              onStartChat(companion.id);
-            }}
-            className="w-full bg-zinc-900 border border-zinc-850 hover:bg-zinc-800 text-white font-bold text-[10px] py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer pointer-events-auto"
-          >
-            💬 Chat
-          </button>
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowHostBookingModal(true);
-            }}
-            className="w-full font-extrabold text-[10px] uppercase tracking-wider py-2 rounded-xl transition-all shadow-md cursor-pointer pointer-events-auto bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black flex items-center justify-center gap-1 shadow-amber-950/20 active:scale-[0.98]"
-          >
-            📅 Propose Rendezvous (${companion.ratePerHour}/hr)
-          </button>
         </div>
       </div>
 
-      {showHostBookingModal && (
-        <HostBookingModal
-          hostId={companion.id}
-          hostUsername={companion.username}
-          hourlyRate={companion.ratePerHour}
-          hostAvatar={companion.avatar}
-          onClose={() => setShowHostBookingModal(false)}
+      {/* Render Modal when clicked */}
+      {isBookingModalOpen && (
+        <ProposeRendezvousModal
+          hostUsername={companion.name || companion.username || 'host'}
+          hourlyRate={companion.ratePerHour || 250}
+          onClose={() => setIsBookingModalOpen(false)}
         />
       )}
-    </motion.div>
+    </>
   );
 }

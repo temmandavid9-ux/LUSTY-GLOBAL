@@ -740,7 +740,7 @@ export function PublicCompanionProfileView({
               className="flex-1 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black font-extrabold text-xs py-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow active:scale-[0.98]"
             >
               <Calendar className="w-4 h-4" />
-              <span>Propose Rendezvous (${(displayRate).toFixed(0)}/hr)</span>
+              <span>BOOKING (${(displayRate).toFixed(0)}/hr)</span>
             </button>
           </div>
         )}
