@@ -59,7 +59,7 @@ export function LoungeVideoPlayer({ videoUrl, poster, isActive }: PlayerProps) {
         loop
         playsInline
         crossOrigin="anonymous"
-        preload="metadata" // Download metadata first to save cellular data and decoding resources
+        preload="auto" // Preload entire stream for instant scroll playback
         muted // Muted by default to bypass strict browser auto-play blockers
         onError={(e) => {
           console.warn("Video load failed. Switching to fallback stream.", e);

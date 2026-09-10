@@ -245,9 +245,89 @@ function cryptoPayoutApiPlugin(): Plugin {
   };
 }
 
+function hostPayoutNowpaymentsPlugin(): Plugin {
+  return {
+    name: 'host-payout-nowpayments-plugin',
+    configureServer(server) {
+      server.middlewares.use('/api/host/payout', async (req, res) => {
+        if (req.method === 'OPTIONS') {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+          res.statusCode = 200;
+          res.end();
+          return;
+        }
+
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: false, message: 'Method Not Allowed' }));
+          return;
+        }
+
+        let bodyStr = '';
+        req.on('data', (chunk) => {
+          bodyStr += chunk;
+        });
+
+        req.on('end', async () => {
+          try {
+            const body = JSON.parse(bodyStr || '{}');
+            const { walletAddress, network, amount } = body;
+
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+
+            const apiKey = process.env.NOWPAYMENTS_API_KEY || '';
+
+            if (apiKey) {
+              const response = await fetch('https://api.nowpayments.io/v1/payout', {
+                method: 'POST',
+                headers: {
+                  'x-api-key': apiKey,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  withdrawals: [
+                    {
+                      address: walletAddress,
+                      amount: Number(amount),
+                      currency: network === 'TRC20' ? 'usdttrc20' : (network === 'ERC20' ? 'usdterc20' : 'usdt')
+                    }
+                  ]
+                })
+              });
+
+              const data = await response.json();
+
+              if (!response.ok) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ success: false, message: data.message || 'Payout network error.' }));
+                return;
+              }
+
+              res.statusCode = 200;
+              res.end(JSON.stringify({ success: true, payoutId: data.id }));
+            } else {
+              // Sandbox / Fallback response when NOWPAYMENTS_API_KEY is not configured
+              res.statusCode = 200;
+              res.end(JSON.stringify({ success: true, payoutId: `payout_sim_${Date.now()}` }));
+            }
+          } catch (error: any) {
+            console.error('Payout processing error:', error);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ success: false, message: 'Server error processing payout.' }));
+          }
+        });
+      });
+    }
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss(), tokenizedChargeApiPlugin(), nowPaymentsApiPlugin(), cryptoPayoutApiPlugin()],
+  plugins: [react(), tailwindcss(), tokenizedChargeApiPlugin(), nowPaymentsApiPlugin(), cryptoPayoutApiPlugin(), hostPayoutNowpaymentsPlugin()],
   server: {
     port: 3000,
     host: true,

@@ -1687,7 +1687,7 @@ function LoungeShortsPlayerComponent({
         <video 
           ref={videoRef}
           src={isActive || isNext || isIntersecting ? safeShortVideoUrl : undefined}
-          preload={isActive ? "auto" : "metadata"}
+          preload="auto"
           loop 
           muted={!isActive || isMuted} 
           playsInline
