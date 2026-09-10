@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Zap, ShieldCheck, Lock, CreditCard, Loader2, X, CheckCircle2 } from 'lucide-react';
+import { Zap, ShieldCheck, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { executeCardPayment } from '../utils/processPayment';
 import { chargeLinkedCard } from '../lib/chargeLinkedCard';
+import BoostConfirmationModal from './BoostConfirmationModal';
 
 interface BoostTier {
   id?: string;
@@ -72,10 +73,8 @@ export function HostVisibilityBoostPanel({
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [hasCardLinked, setHasCardLinked] = useState<boolean>(initialHasPaymentMethod || false);
-  const [dbCardBrandLast4, setDbCardBrandLast4] = useState<string>(initialCardBrandLast4 || 'CARD');
   const [isLoadingCardCheck, setIsLoadingCardCheck] = useState<boolean>(true);
   const [confirmModalTier, setConfirmModalTier] = useState<BoostTier | null>(null);
-  const [isCharging, setIsCharging] = useState<boolean>(false);
 
   // 📡 1. Fetch real card status on component mount and whenever user changes or cardLinked event fires
   useEffect(() => {
@@ -108,7 +107,6 @@ export function HostVisibilityBoostPanel({
         }
 
         setHasCardLinked(linked);
-        setDbCardBrandLast4(data?.card_brand_last4 || (localLinked ? 'Visa •••• 4242' : 'CARD'));
       } catch (err) {
         console.error("Error checking payment methods:", err);
         const localLinked = typeof window !== 'undefined' && localStorage.getItem(`card_linked_${currentUserId}`) === 'true';
@@ -169,7 +167,6 @@ export function HostVisibilityBoostPanel({
     const formattedPrice = `$${campaignCost.toFixed(2)}`;
 
     setProcessingId(tier.name);
-    setIsCharging(true);
 
     try {
       // 1. Process card payment first
@@ -303,50 +300,12 @@ export function HostVisibilityBoostPanel({
       setFeedback({ type: 'error', message: failMsg });
       toast.error(failMsg);
     } finally {
-      setIsCharging(false);
       setProcessingId(null);
     }
   };
 
   // Retain handleBoostCampaign reference for manual card processing fallback
   void handleBoostCampaign;
-
-  const handleConfirmAndPay = async () => {
-    if (!confirmModalTier) return;
-    setIsCharging(true);
-
-    try {
-      const response = await fetch('/api/create-payment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          priceAmount: confirmModalTier.price,
-          orderId: `boost_${confirmModalTier.id || confirmModalTier.name.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create crypto invoice');
-      }
-
-      const invoiceUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url;
-
-      // Redirect user straight to the NOWPayments USDT checkout page
-      if (invoiceUrl) {
-        window.location.href = invoiceUrl;
-      } else {
-        throw new Error('No invoice URL returned from payment gateway');
-      }
-    } catch (err: any) {
-      console.error('Payment routing error:', err);
-      alert(`Payment Initialization Failed: ${err.message}`);
-      setIsCharging(false);
-    }
-  };
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 md:p-8 w-full font-sans text-white text-left relative overflow-hidden">
@@ -415,87 +374,13 @@ export function HostVisibilityBoostPanel({
 
       {/* ── PRE-DEBIT CONFIRMATION MODAL ── */}
       {confirmModalTier && (
-        <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0e1117] border border-zinc-800 rounded-3xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl relative">
-            <button
-              type="button"
-              disabled={isCharging}
-              onClick={() => setConfirmModalTier(null)}
-              className="absolute top-4 right-4 text-zinc-400 hover:text-white p-1 rounded-full bg-zinc-900 border border-zinc-800"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto text-amber-500">
-              <Zap className="w-5 h-5" />
-            </div>
-
-            <h3 className="text-sm font-black text-zinc-100 uppercase tracking-wider font-mono">
-              Confirm Campaign Purchase
-            </h3>
-
-            <div className="bg-zinc-900/90 rounded-2xl p-4 border border-zinc-800 text-left space-y-2.5">
-              <div className="flex justify-between items-center text-xs text-zinc-400">
-                <span>Target Clip:</span>
-                <span className="text-zinc-200 font-bold truncate max-w-[160px]">
-                  {selectedVideo?.title || selectedVideo?.caption || 'Selected Loop'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-xs text-zinc-400">
-                <span>Boost Tier:</span>
-                <span className="text-pink-400 font-bold">{confirmModalTier.name}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs text-zinc-400">
-                <span>Deliverables:</span>
-                <span className="text-zinc-300 font-semibold text-[11px]">{confirmModalTier.durationText}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs text-zinc-400">
-                <span>Card on File:</span>
-                <span className="text-zinc-300 font-mono flex items-center gap-1">
-                  <CreditCard className="w-3 h-3 text-zinc-400" />
-                  •••• {dbCardBrandLast4}
-                </span>
-              </div>
-              <div className="border-t border-zinc-800 pt-2.5 flex justify-between items-center text-sm font-black text-white">
-                <span>Total Debit Amount:</span>
-                <span className="text-emerald-400 font-mono text-base">${confirmModalTier.price.toFixed(2)} USD</span>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-zinc-500 leading-tight">
-              Clicking confirm will charge your saved card <strong className="text-zinc-300">${confirmModalTier.price.toFixed(2)}</strong> and immediately accelerate your video.
-            </p>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                disabled={isCharging}
-                onClick={() => setConfirmModalTier(null)}
-                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isCharging}
-                onClick={handleConfirmAndPay}
-                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-black flex items-center justify-center gap-2 transition"
-              >
-                {isCharging ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Debiting Card...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Confirm &amp; Pay ${confirmModalTier.price.toFixed(2)}</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+        <BoostConfirmationModal
+          clipTitle={selectedVideo?.title || selectedVideo?.caption || 'Selected Loop'}
+          boostTier={confirmModalTier.name}
+          deliverables={confirmModalTier.durationText}
+          priceAmount={confirmModalTier.price}
+          onClose={() => setConfirmModalTier(null)}
+        />
       )}
     </div>
   );

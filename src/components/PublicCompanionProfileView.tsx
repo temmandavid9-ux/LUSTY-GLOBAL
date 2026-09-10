@@ -8,6 +8,7 @@ import {
 import { Booking } from '../types';
 import { initiateFlutterwavePayment } from '../lib/flutterwave';
 import { chargeLinkedCard } from '../lib/chargeLinkedCard';
+import HostBookingModal from './HostBookingModal';
 
 interface PublicCompanionProfileViewProps {
   hostId: string;
@@ -37,6 +38,7 @@ export function PublicCompanionProfileView({
   const [showBooking, setShowBooking] = useState<boolean>(false);
   const [bookingHours, setBookingHours] = useState<number>(1);
   const [isBooking, setIsBooking] = useState<boolean>(false);
+  const [showHostBookingModal, setShowHostBookingModal] = useState<boolean>(false);
   const [bookingFeedback, setBookingFeedback] = useState<{ type: 'success' | 'error' | 'card_required'; message: string } | null>(null);
 
   useEffect(() => {
@@ -419,6 +421,8 @@ export function PublicCompanionProfileView({
     }
   };
 
+  void handleExecuteBooking;
+
   if (isLoading) {
     return (
       <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[110] flex flex-col items-center justify-center text-zinc-500 text-xs font-mono">
@@ -671,13 +675,8 @@ export function PublicCompanionProfileView({
                   </div>
 
                   <button
-                    onClick={handleExecuteBooking}
-                    disabled={isBooking}
-                    className={`w-full py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 ${
-                      isBooking 
-                        ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
-                        : 'bg-pink-600 hover:bg-pink-700 text-white'
-                    }`}
+                    onClick={() => setShowHostBookingModal(true)}
+                    className="w-full py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 bg-pink-600 hover:bg-pink-700 text-white cursor-pointer"
                   >
                     <span>Authorize Escrow hold</span>
                   </button>
@@ -747,6 +746,16 @@ export function PublicCompanionProfileView({
               <span>Book Rendezvous</span>
             </button>
           </div>
+        )}
+
+        {showHostBookingModal && (
+          <HostBookingModal
+            hostId={hostId}
+            hostUsername={profile?.username || 'host'}
+            hourlyRate={profile?.hourly_rate || profile?.ratePerHour || 250.00}
+            hostAvatar={profile?.avatar || profile?.avatar_url}
+            onClose={() => setShowHostBookingModal(false)}
+          />
         )}
 
       </div>

@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Loader2, Clock, Heart, Flame, Eye } from 'lucide-react';
+import { Clock, Heart, Flame, Eye } from 'lucide-react';
 import { Companion, Booking } from '../types';
 import { motion } from 'motion/react';
 import { initiateFlutterwavePayment } from '../lib/flutterwave';
 import { chargeLinkedCard } from '../lib/chargeLinkedCard';
 import { OptimizedImage } from './OptimizedImage';
 import { formatMetricCount } from '../utils/formatMetrics';
+import HostBookingModal from './HostBookingModal';
 
 interface CompanionDirectoryCardProps {
   companion: Companion;
@@ -31,6 +32,7 @@ export function CompanionDirectoryCard({
   const [isBooking, setIsBooking] = useState(false);
   const [bookingHours, setBookingHours] = useState(1);
   const [bookingFeedback, setBookingFeedback] = useState<{ type: 'success' | 'error' | 'card_required'; message: string } | null>(null);
+  const [showHostBookingModal, setShowHostBookingModal] = useState(false);
 
   const handleExecuteBooking = async () => {
     if (isBooking) return;
@@ -333,6 +335,8 @@ export function CompanionDirectoryCard({
     }
   };
 
+  void handleExecuteBooking;
+
   const isOfflineOver24Hours = () => {
     if (companion.isOnline) return false;
     if (!companion.lastSeen) {
@@ -606,23 +610,11 @@ export function CompanionDirectoryCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                handleExecuteBooking();
+                setShowHostBookingModal(true);
               }}
-              disabled={isBooking}
-              className={`w-full py-1.5 rounded-lg font-black text-[8px] uppercase tracking-wider transition-all duration-200 pointer-events-auto flex items-center justify-center gap-1 ${
-                isBooking 
-                  ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
-                  : 'bg-pink-600 hover:bg-pink-700 text-white active:scale-[0.98]'
-              }`}
+              className="w-full py-1.5 rounded-lg font-black text-[8px] uppercase tracking-wider transition-all duration-200 pointer-events-auto flex items-center justify-center gap-1 bg-pink-600 hover:bg-pink-700 text-white active:scale-[0.98] cursor-pointer"
             >
-              {isBooking ? (
-                <>
-                  <Loader2 className="w-2.5 h-2.5 animate-spin text-zinc-500" />
-                  <span>Verifying...</span>
-                </>
-              ) : (
-                <span>Authorize Escrow</span>
-              )}
+              <span>Authorize Escrow</span>
             </button>
 
             {/* Dynamic Stripe / Card Error Fallbacks */}
@@ -680,6 +672,16 @@ export function CompanionDirectoryCard({
           </button>
         </div>
       </div>
+
+      {showHostBookingModal && (
+        <HostBookingModal
+          hostId={companion.id}
+          hostUsername={companion.username}
+          hourlyRate={companion.ratePerHour}
+          hostAvatar={companion.avatar}
+          onClose={() => setShowHostBookingModal(false)}
+        />
+      )}
     </motion.div>
   );
 }

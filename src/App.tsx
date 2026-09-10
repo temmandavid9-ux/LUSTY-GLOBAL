@@ -1549,11 +1549,11 @@ export default function App() {
             <span className="text-[10px] bg-pink-500/10 text-pink-400 border border-pink-500/20 px-2 py-0.5 rounded font-bold font-mono uppercase tracking-wider">🔒 Escrow Active</span>
           </div>
 
-          {/* ── Direct Processing Billing Node ── */}
+          {/* ── Decentralized Crypto Billing Node ── */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500 bg-zinc-900 border border-zinc-800/60 px-2.5 py-2.5 rounded-xl flex items-center gap-1.5 w-full justify-center">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-              Direct Card Settlement Active
+            <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-400 bg-zinc-900 border border-zinc-800/60 px-2.5 py-2.5 rounded-xl flex items-center gap-1.5 w-full justify-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              USDT (TRC-20) Node Active · TGQPfachyf...
             </span>
           </div>
         </div>

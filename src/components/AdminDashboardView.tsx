@@ -1,9 +1,10 @@
 import { COMPANIONS } from '../data';
-import { BarChart3, TrendingUp, CreditCard, AlertCircle, ShieldAlert } from 'lucide-react';
+import { BarChart3, TrendingUp, AlertCircle, ShieldAlert } from 'lucide-react';
 import { Booking } from '../types';
 import { EscrowBillingPortal } from './EscrowBillingPortal';
 import { EscrowHistoryLog } from './EscrowHistoryLog';
-import { VerifiedBadge } from './VerifiedBadge';
+import EscrowStatusBox from './EscrowStatusBox';
+import ClickableBookingCard from './ClickableBookingCard';
 
 interface AdminDashboardViewProps {
   bookings: Booking[];
@@ -43,43 +44,7 @@ export default function AdminDashboardView({
       {/* 💳 Step 2: Display the Active Card Inside the Vault Status Display */}
       <div className="mb-6 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div className="lg:col-span-2 space-y-4">
-          {currentUserProfile?.has_payment_method ? (
-            <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl" />
-              <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-full bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-center text-emerald-400 shrink-0">
-                  <CreditCard className="w-5 h-5" />
-                </div>
-                <div className="text-left">
-                  <h3 className="text-xs font-mono font-black text-white uppercase tracking-wider">Escrow Authorization Hold Verified</h3>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
-                    Your primary payment card <span className="text-emerald-400 font-bold font-mono">{currentUserProfile.card_brand_last4 || "Card"}</span> is linked. You can secure rendezvous escrow agreements instantly.
-                  </p>
-                </div>
-              </div>
-              <span className="text-[10px] font-mono text-emerald-400 border border-emerald-500/20 bg-emerald-950/20 px-3 py-1 rounded-full font-bold uppercase shrink-0">
-                ✓ Ready for Escrow
-              </span>
-            </div>
-          ) : (
-            <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl" />
-              <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-full bg-rose-950/40 border border-rose-800/60 flex items-center justify-center text-rose-400 shrink-0">
-                  <ShieldAlert className="w-5 h-5" />
-                </div>
-                <div className="text-left">
-                  <h3 className="text-xs font-mono font-black text-rose-400 uppercase tracking-wider">Hold Security Required</h3>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
-                    Link a valid payment card to establish hold credentials. Booking request escrows cannot be processed without hold coverage.
-                  </p>
-                </div>
-              </div>
-              <span className="text-[10px] font-mono text-rose-400 border border-rose-500/20 bg-rose-950/20 px-3 py-1 rounded-full font-bold uppercase shrink-0">
-                ⚠️ SETUP REQUIRED
-              </span>
-            </div>
-          )}
+          <EscrowStatusBox />
 
           {/* Render USDT Crypto Billing Portal underneath */}
           <div className="w-full">
@@ -145,13 +110,9 @@ export default function AdminDashboardView({
             {bookings.map(booking => {
               const companion = COMPANIONS.find(c => c.id === booking.companionId || c.id === booking.receiverId);
               
-              // Dynamic extraction of sender and receiver booking details
               const senderUsername = booking.senderUsername || 'black';
               const senderAvatar = booking.senderAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150';
               const receiverUsername = booking.receiverUsername || companion?.username || 'Elena_VIP';
-              const receiverAvatar = booking.receiverAvatar || companion?.avatar || 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150';
-              const isVerified = booking.isVerified !== undefined ? booking.isVerified : (companion?.isVIP || companion?.is_verified || false);
-
               const scheduledDate = booking.date || '2026-06-28';
               const scheduledTime = booking.time || '20:00';
               const durationHours = booking.duration || 2;
@@ -160,47 +121,23 @@ export default function AdminDashboardView({
               const statusStr = (booking.status || 'escrowed').toUpperCase();
 
               return (
-                <div key={booking.id} className="bg-zinc-950/80 border border-zinc-850 p-4 rounded-2xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <img 
-                      src={senderAvatar || receiverAvatar} 
-                      alt="sender" 
-                      className="w-10 h-10 rounded-full object-cover border-2 border-pink-500" 
-                    />
-                    <div className="text-left">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-extrabold text-white">@{senderUsername}</span>
-                        {isVerified && <VerifiedBadge variant="blue" className="inline-block ml-1" size={18} />}
-                        <span className="text-[10px] text-zinc-500 font-mono">
-                          → @{receiverUsername}
-                        </span>
-                      </div>
-                      <p className="text-zinc-400 text-[11px] font-mono mt-0.5">
-                        {scheduledDate} at {scheduledTime} ({durationHours} hrs)
-                      </p>
-                      <p className="text-zinc-500 text-[10px] font-mono mt-1">
-                        📍 {location}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex sm:flex-col items-end justify-between sm:justify-center gap-2 font-mono">
-                    <div className="text-right">
-                      <span className="text-zinc-500 text-[10px] block">ESCROW DEPOSIT</span>
-                      <span className="text-emerald-400 font-extrabold text-sm">${depositAmount}</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                        statusStr === 'ESCROWED' || statusStr === 'PAID_ESCROW' || statusStr === 'CONFIRMED'
-                          ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/20' 
-                          : 'bg-zinc-800 text-zinc-400'
-                      }`}>
-                        {statusStr}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                <ClickableBookingCard 
+                  key={booking.id}
+                  booking={{
+                    id: booking.id,
+                    clientUsername: senderUsername,
+                    clientAvatar: senderAvatar,
+                    hostUsername: receiverUsername,
+                    date: `${scheduledDate} at ${scheduledTime}`,
+                    duration: `${durationHours} hrs`,
+                    location: location,
+                    hotelAddress: (booking as any).hotelAddress || (booking as any).hotel_address,
+                    roomNumber: (booking as any).roomNumber || (booking as any).room_number,
+                    grossAmount: depositAmount,
+                    status: statusStr,
+                    txRef: booking.id
+                  }}
+                />
               );
             })}
           </div>
