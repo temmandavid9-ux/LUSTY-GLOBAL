@@ -31,7 +31,7 @@ export function CompanionDirectoryCard({
   const rate = companion.ratePerHour || 250;
   const rating = companion.rating || 5.0;
   const reviews = companion.reviewsCount || 42;
-  const avatar = companion.avatar || companion.image || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500";
+  const avatar = companion.images?.[0] || companion.avatar || companion.image || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500";
   const views = companion.views || "11.2K";
   const isTrending = companion.isTrending ?? true;
   const isOnline = companion.isOnline ?? companion.is_online ?? true;

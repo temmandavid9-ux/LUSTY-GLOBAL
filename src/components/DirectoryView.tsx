@@ -23,6 +23,33 @@ export const shuffleArray = <T,>(array: T[]): T[] => {
   return shuffled;
 };
 
+const DIVERSE_FALLBACK_IMAGES = [
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600', // Female
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600', // Male
+  'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600', // Female
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=600', // Male
+  'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600', // Female
+  'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=600', // Male
+  'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=600', // Male
+  'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=600'  // Female
+];
+
+const getFallbackAvatar = (id: string, username: string) => {
+  const nameLower = (username || id || '').toLowerCase();
+  if (nameLower.includes('starboy') || nameLower.includes('male') || nameLower.includes('boy')) {
+    return 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600';
+  }
+  if (nameLower.includes('lucy') || nameLower.includes('juicy')) {
+    return 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600';
+  }
+  let hash = 0;
+  for (let i = 0; i < nameLower.length; i++) {
+    hash = nameLower.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % DIVERSE_FALLBACK_IMAGES.length;
+  return DIVERSE_FALLBACK_IMAGES[index];
+};
+
 export default function DirectoryView({ 
   onStartChat, 
   currentUser,
@@ -240,20 +267,20 @@ export default function DirectoryView({
           }
         }
 
-        let query = supabase
-          .from('profiles')
-          .select('*')
-          .order('is_verified', { ascending: false })
-          .order('last_login', { ascending: false })
-          .order('created_at', { ascending: false });
+        // Select all profiles safely without failing if last_login column is missing in Supabase schema
+        let query = supabase.from('profiles').select('*');
 
         if (activeUserId) {
           query = query.neq('id', activeUserId);
         }
 
-        const { data, error } = await query;
+        let { data, error } = await query;
         
-        if (error) throw error;
+        if (error) {
+          console.warn("Primary query failed, trying basic select:", error.message);
+          const fallback = await supabase.from('profiles').select('*');
+          data = fallback.data;
+        }
 
         if (data && data.length > 0) {
           const currentUsernameLower = (activeUsername || '').toLowerCase();
@@ -264,6 +291,18 @@ export default function DirectoryView({
             const isCurrentUser = (activeUserId && p.id === activeUserId) || (currentUsernameLower && usernameLower === currentUsernameLower);
             return !isTest && !isCurrentUser;
           });
+
+          // Sort in memory: Verified first, then most recent last_login / last_seen / created_at
+          filteredMapped.sort((a: any, b: any) => {
+            const aVerified = a.is_verified || a.isVerified || a.is_vip ? 1 : 0;
+            const bVerified = b.is_verified || b.isVerified || b.is_vip ? 1 : 0;
+            if (aVerified !== bVerified) return bVerified - aVerified;
+
+            const timeA = new Date(a.last_login || a.last_seen || a.lastLogin || a.created_at || 0).getTime();
+            const timeB = new Date(b.last_login || b.last_seen || b.lastLogin || b.created_at || 0).getTime();
+            return timeB - timeA;
+          });
+
           setProfiles(filteredMapped);
         } else {
           setProfiles([]);
@@ -308,8 +347,20 @@ export default function DirectoryView({
       const rawTags = Array.isArray(profile.tags) ? profile.tags : [];
       // Remove '#' symbol for clean tag displaying or matching
       const tags = rawTags.map((t: string) => t.startsWith('#') ? t.substring(1) : t);
+
+      // Match against local COMPANIONS catalog if available
+      const matchingCompanion = COMPANIONS.find(c => 
+        c.id === profile.id || 
+        c.username.toLowerCase() === (profile.username || '').toLowerCase() ||
+        c.name.toLowerCase() === (profile.name || '').toLowerCase() ||
+        (profile.username && c.username.toLowerCase().includes(profile.username.toLowerCase())) ||
+        (profile.username && profile.username.toLowerCase().includes(c.username.toLowerCase()))
+      );
+
+      const avatar = profile.avatar_url || matchingCompanion?.avatar || getFallbackAvatar(profile.id, profile.username || profile.name);
+      const coverImage = profile.cover_image_url || matchingCompanion?.images?.[0] || avatar;
       
-      const loc = profile.location || 'London, Mayfair';
+      const loc = profile.location || matchingCompanion?.location || 'London, Mayfair';
       const hasValidUserCoords = userCoords && userCoords.lat !== 0 && userCoords.lon !== 0;
 
       let distanceStr = "Location unavailable";
@@ -330,32 +381,32 @@ export default function DirectoryView({
 
       return {
         id: profile.id,
-        username: profile.username || 'anonymous',
-        name: profile.name || profile.username || 'Anonymous Host',
-        avatar: profile.avatar_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+        username: profile.username || matchingCompanion?.username || 'anonymous',
+        name: profile.name || profile.username || matchingCompanion?.name || 'Anonymous Host',
+        avatar: avatar,
         images: [
-          profile.cover_image_url || profile.avatar_url || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600',
+          coverImage,
           'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600'
         ],
-        isVIP: !!(profile.is_verified || profile.tier_badge === 'VIP SELECT'),
-        is_verified: !!profile.is_verified,
-        isVerified: !!profile.is_verified,
+        isVIP: !!(profile.is_verified || profile.tier_badge === 'VIP SELECT' || matchingCompanion?.isVIP),
+        is_verified: !!(profile.is_verified || matchingCompanion?.isVIP),
+        isVerified: !!(profile.is_verified || matchingCompanion?.isVIP),
         isOnline: profile.is_online === true || ((profile.last_login || profile.last_seen) && new Date(profile.last_login || profile.last_seen).getTime() > Date.now() - 5 * 60 * 1000),
         lastSeen: profile.last_login || profile.last_seen,
         last_login: profile.last_login || profile.last_seen,
-        age: profile.age || 24,
-        location: profile.location || 'London, Mayfair',
+        age: profile.age || matchingCompanion?.age || 24,
+        location: loc,
         distance: distanceStr,
         distanceMiles: miles,
-        ratePerHour: profile.hourly_rate || 250,
-        bio: profile.bio || 'Verified VIP guest. Rates available on demand 🔒',
-        default_caption: profile.default_caption || profile.title || profile.bio || 'Verified VIP guest. Rates available on demand 🔒',
-        tags: tags,
-        rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT') ? 5.0 : (profile.rating || 4.9),
-        avg_rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT') ? 5.0 : (profile.avg_rating || profile.rating || 4.9),
-        reviewsCount: profile.reviews_count || 42,
-        verifiedAt: profile.verified_at || 'June 2026',
-        languages: profile.languages || ['English'],
+        ratePerHour: profile.hourly_rate || matchingCompanion?.ratePerHour || 250,
+        bio: profile.bio || matchingCompanion?.bio || 'Verified VIP guest. Rates available on demand 🔒',
+        default_caption: profile.default_caption || profile.title || profile.bio || matchingCompanion?.bio || 'Verified VIP guest. Rates available on demand 🔒',
+        tags: tags.length > 0 ? tags : (matchingCompanion?.tags || []),
+        rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT' || matchingCompanion?.isVIP) ? 5.0 : (profile.rating || 4.9),
+        avg_rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT' || matchingCompanion?.isVIP) ? 5.0 : (profile.avg_rating || profile.rating || 4.9),
+        reviewsCount: profile.reviews_count || matchingCompanion?.reviewsCount || 42,
+        verifiedAt: profile.verified_at || matchingCompanion?.verifiedAt || 'June 2026',
+        languages: profile.languages || matchingCompanion?.languages || ['English'],
         created_at: profile.created_at || new Date().toISOString()
       };
     });
