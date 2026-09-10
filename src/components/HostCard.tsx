@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Star, ShieldCheck, Calendar, MessageSquare, Lock } from 'lucide-react';
+import { Star, Calendar, MessageSquare, Lock } from 'lucide-react';
 import ProposeRendezvousModal from './ProposeRendezvousModal';
+import VerifiedBadge from './VerifiedBadge';
 
 interface HostCardProps {
   hostId?: string;
@@ -9,6 +10,7 @@ interface HostCardProps {
   rating?: number;
   reviewsCount?: number;
   hostAvatar?: string;
+  isVerified?: boolean;
   onStartChat?: (hostId?: string) => void;
 }
 
@@ -19,6 +21,7 @@ export default function HostCard({
   rating = 5.0,
   reviewsCount = 42,
   hostAvatar,
+  isVerified = true,
   onStartChat
 }: HostCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -30,7 +33,7 @@ export default function HostCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="font-extrabold font-mono text-base">@{hostUsername}</span>
-          <ShieldCheck className="w-4 h-4 text-sky-400" />
+          {isVerified && <VerifiedBadge variant="blue" size={16} />}
         </div>
         <span className="text-[10px] font-mono bg-pink-500/10 text-pink-400 border border-pink-500/20 px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">
           Trending

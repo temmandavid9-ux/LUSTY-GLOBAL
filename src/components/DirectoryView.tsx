@@ -267,8 +267,11 @@ export default function DirectoryView({
           }
         }
 
-        // Select all profiles safely without failing if last_login column is missing in Supabase schema
-        let query = supabase.from('profiles').select('*');
+        // Select all profiles ordered by is_verified desc (verified profiles first)
+        let query = supabase
+          .from('profiles')
+          .select('*')
+          .order('is_verified', { ascending: false });
 
         if (activeUserId) {
           query = query.neq('id', activeUserId);
@@ -292,14 +295,14 @@ export default function DirectoryView({
             return !isTest && !isCurrentUser;
           });
 
-          // Sort in memory: Verified first, then most recent last_login / last_seen / created_at
+          // Sort in memory: True is_verified first, then most recent activity
           filteredMapped.sort((a: any, b: any) => {
-            const aVerified = a.is_verified || a.isVerified || a.is_vip ? 1 : 0;
-            const bVerified = b.is_verified || b.isVerified || b.is_vip ? 1 : 0;
+            const aVerified = a.is_verified === true || a.is_verified === 'true' ? 1 : 0;
+            const bVerified = b.is_verified === true || b.is_verified === 'true' ? 1 : 0;
             if (aVerified !== bVerified) return bVerified - aVerified;
 
-            const timeA = new Date(a.last_login || a.last_seen || a.lastLogin || a.created_at || 0).getTime();
-            const timeB = new Date(b.last_login || b.last_seen || b.lastLogin || b.created_at || 0).getTime();
+            const timeA = new Date(a.last_seen || a.last_login || a.created_at || 0).getTime();
+            const timeB = new Date(b.last_seen || b.last_login || b.created_at || 0).getTime();
             return timeB - timeA;
           });
 

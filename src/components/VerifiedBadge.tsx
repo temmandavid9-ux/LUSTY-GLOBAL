@@ -7,11 +7,10 @@ interface VerifiedBadgeProps {
 }
 
 export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({ 
-  className = "inline-block align-middle ml-1", 
+  className = "", 
   size = 18,
   variant = 'blue'
 }) => {
-  // Hardcoded Official Twitter/Instagram Verified Blue (#1D9BF0) by default
   const isPurple = variant === 'purple';
   const badgeFill = isPurple ? '#A855F7' : '#1D9BF0';
 
@@ -20,23 +19,13 @@ export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
-      className={className.replace(/text-purple-\d+/g, '')}
+      className={`shrink-0 ${className}`}
       style={{ display: 'inline-block', verticalAlign: 'middle' }}
       aria-label="Verified User"
     >
-      {/* Official Verified Blue Scalloped Badge Background */}
       <path
-        d="M12 2L14.5 3.8L17.5 3.5L18.8 6.3L21.5 7.8L21 10.8L22.8 13.3L20.8 15.8L21 18.8L18 19.2L16.2 21.8L13.2 21L11 22.8L8.8 21L5.8 21.8L4 19.2L1 18.8L1.2 15.8L-0.8 13.3L1 10.8L0.5 7.8L3.2 6.3L4.5 3.5L7.5 3.8L10 2H12Z"
+        d="M22.25 12c0-1.43-.88-2.67-2.15-3.21.15-.44.24-.91.24-1.4 0-2.2-1.72-4-3.83-4-.48 0-.94.1-1.35.27C14.56 2.39 13.38 1.5 12 1.5s-2.56.89-3.16 2.16c-.41-.17-.87-.27-1.35-.27-2.11 0-3.83 1.8-3.83 4 0 .49.09.96.24 1.4-1.27.54-2.15 1.78-2.15 3.21 0 1.43.88 2.67 2.15 3.21-.15.44-.24.91-.24 1.4 0 2.2 1.72 4 3.83 4 .48 0 .94-.1 1.35-.27.6 1.27 1.78 2.16 3.16 2.16s2.56-.89 3.16-2.16c.41.17.87.27 1.35.27 2.11 0 3.83-1.8 3.83-4 0-.49-.09-.96-.24-1.4 1.27-.54 2.15-1.78 2.15-3.21zm-12.5 4L6 12.25l1.5-1.5 2.25 2.25L16.25 6.5l1.5 1.5-8 8z"
         fill={badgeFill}
-      />
-      {/* White Checkmark */}
-      <path
-        d="M9 12.5L11 14.5L15.5 9.5"
-        stroke="#FFFFFF"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   );

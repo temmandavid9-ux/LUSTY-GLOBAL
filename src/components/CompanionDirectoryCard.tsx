@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Star, ShieldCheck, Calendar, MessageSquare, Lock } from 'lucide-react';
+import { Star, Calendar, MessageSquare, Lock } from 'lucide-react';
 import ProposeRendezvousModal from './ProposeRendezvousModal';
+import VerifiedBadge from './VerifiedBadge';
 
 interface CompanionDirectoryCardProps {
   companion: any;
@@ -37,6 +38,7 @@ export function CompanionDirectoryCard({
   const isOnline = companion.isOnline ?? companion.is_online ?? true;
   const isVipSelect = companion.isVipSelect ?? true;
   const activeFavorite = isFavorite ?? isFavorited ?? false;
+  const isVerified = Boolean(companion.is_verified || companion.isVerified);
 
   const lastLoginTimestamp = companion.last_login || companion.lastLogin || companion.lastSeen || companion.last_seen;
 
@@ -91,7 +93,7 @@ export function CompanionDirectoryCard({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-extrabold font-mono text-base">@{username}</span>
-            <ShieldCheck className="w-4 h-4 text-sky-400" />
+            {isVerified && <VerifiedBadge variant="blue" size={16} />}
           </div>
           <button 
             type="button"
