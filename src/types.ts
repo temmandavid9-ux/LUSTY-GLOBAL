@@ -25,6 +25,8 @@ export interface Companion {
   lastMessageAt?: string;
   default_caption?: string;
   lastSeen?: string;
+  last_login?: string;
+  lastLogin?: string;
   created_at?: string;
 }
 

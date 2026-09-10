@@ -14,7 +14,7 @@ interface DirectoryViewProps {
 }
 
 // Helper function to shuffle an array randomly (Fisher-Yates Shuffle)
-const shuffleArray = <T,>(array: T[]): T[] => {
+export const shuffleArray = <T,>(array: T[]): T[] => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -244,6 +244,7 @@ export default function DirectoryView({
           .from('profiles')
           .select('*')
           .order('is_verified', { ascending: false })
+          .order('last_login', { ascending: false })
           .order('created_at', { ascending: false });
 
         if (activeUserId) {
@@ -339,8 +340,9 @@ export default function DirectoryView({
         isVIP: !!(profile.is_verified || profile.tier_badge === 'VIP SELECT'),
         is_verified: !!profile.is_verified,
         isVerified: !!profile.is_verified,
-        isOnline: profile.is_online === true || (profile.last_seen && new Date(profile.last_seen).getTime() > Date.now() - 5 * 60 * 1000),
-        lastSeen: profile.last_seen,
+        isOnline: profile.is_online === true || ((profile.last_login || profile.last_seen) && new Date(profile.last_login || profile.last_seen).getTime() > Date.now() - 5 * 60 * 1000),
+        lastSeen: profile.last_login || profile.last_seen,
+        last_login: profile.last_login || profile.last_seen,
         age: profile.age || 24,
         location: profile.location || 'London, Mayfair',
         distance: distanceStr,
@@ -413,12 +415,20 @@ export default function DirectoryView({
     const verified = filteredCompanions.filter(c => c.is_verified || c.isVerified);
     const unverified = filteredCompanions.filter(c => !(c.is_verified || c.isVerified));
 
-    let sortedVerified = shuffleArray(verified);
-    let sortedUnverified = shuffleArray(unverified);
+    const sortByLoginOrCreated = (list: Companion[]) => {
+      return [...list].sort((a, b) => {
+        const timeA = new Date(a.last_login || a.lastSeen || a.created_at || 0).getTime();
+        const timeB = new Date(b.last_login || b.lastSeen || b.created_at || 0).getTime();
+        return timeB - timeA;
+      });
+    };
+
+    let sortedVerified = sortByLoginOrCreated(verified);
+    let sortedUnverified = sortByLoginOrCreated(unverified);
 
     if (sortBy === 'newest') {
-      sortedVerified.sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0));
-      sortedUnverified.sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0));
+      sortedVerified = sortByLoginOrCreated(sortedVerified);
+      sortedUnverified = sortByLoginOrCreated(sortedUnverified);
     } else if (sortBy === 'top_rated') {
       const getRating = (item: Companion) => item.avg_rating !== undefined && item.avg_rating !== null ? Number(item.avg_rating) : (item.rating || 0);
       sortedVerified.sort((a, b) => getRating(b) - getRating(a));

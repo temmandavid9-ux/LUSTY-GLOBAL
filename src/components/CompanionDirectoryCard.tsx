@@ -34,9 +34,24 @@ export function CompanionDirectoryCard({
   const avatar = companion.avatar || companion.image || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500";
   const views = companion.views || "11.2K";
   const isTrending = companion.isTrending ?? true;
-  const isOnline = companion.isOnline ?? true;
+  const isOnline = companion.isOnline ?? companion.is_online ?? true;
   const isVipSelect = companion.isVipSelect ?? true;
   const activeFavorite = isFavorite ?? isFavorited ?? false;
+
+  const lastLoginTimestamp = companion.last_login || companion.lastLogin || companion.lastSeen || companion.last_seen;
+
+  const formatLastSeen = (timestamp: any) => {
+    if (!timestamp) return 'Active now';
+    const time = new Date(timestamp).getTime();
+    if (isNaN(time)) return 'Active now';
+    const diffMinutes = Math.floor((Date.now() - time) / 60000);
+    if (diffMinutes <= 5) return 'Active now';
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
 
   return (
     <>
@@ -113,7 +128,11 @@ export function CompanionDirectoryCard({
         {/* Meta details (Active now colored emerald green) */}
         <div className="text-[11px] text-zinc-400 font-mono space-y-0.5">
           <div>Age: <span className="text-white font-bold">{companion.age || 24}</span></div>
-          <div>LAST ONLINE: <span className="text-emerald-400 font-bold">Active now</span></div>
+          <div>
+            LAST ONLINE: <span className={isOnline ? "text-emerald-400 font-bold" : "text-zinc-300 font-bold"}>
+              {isOnline ? 'Active now' : formatLastSeen(lastLoginTimestamp)}
+            </span>
+          </div>
           <div className="text-red-400 font-bold">Lounge Live Broadcaster</div>
         </div>
 
