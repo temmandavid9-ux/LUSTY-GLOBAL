@@ -36,18 +36,19 @@ export default function BoostConfirmationModal({
       });
 
       const data = await response.json();
+      console.log('Gateway Response Payload:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to create crypto invoice');
       }
 
       // Check all possible URL keys returned by payment gateways
-      const redirectUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url || data.url;
+      const redirectUrl = data.invoice_url || data.pay_url || data.url || data.payment_url || data.invoice_checkout_url;
 
       if (redirectUrl) {
         window.location.href = redirectUrl;
       } else {
-        throw new Error('No invoice URL returned from payment gateway');
+        throw new Error(data.error || 'No invoice URL returned from payment gateway');
       }
     } catch (err: any) {
       console.error('Campaign crypto payment error:', err);

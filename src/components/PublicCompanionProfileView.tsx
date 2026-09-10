@@ -735,15 +735,12 @@ export function PublicCompanionProfileView({
             </button>
             <button
               onClick={() => {
-                if (activeTab !== 'about') {
-                  setActiveTab('about');
-                }
-                setShowBooking(true);
+                setShowHostBookingModal(true);
               }}
-              className="flex-1 bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-extrabold text-xs py-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow"
+              className="flex-1 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black font-extrabold text-xs py-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow active:scale-[0.98]"
             >
               <Calendar className="w-4 h-4" />
-              <span>Book Rendezvous</span>
+              <span>Propose Rendezvous (${(displayRate).toFixed(0)}/hr)</span>
             </button>
           </div>
         )}

@@ -47,6 +47,7 @@ export async function executeCardPayment(options: PaymentOptions): Promise<void>
     });
 
     const data = await response.json();
+    console.log('Gateway Response Payload:', data);
     toast.dismiss('nowpayments-loading');
 
     if (!response.ok) {
@@ -55,7 +56,7 @@ export async function executeCardPayment(options: PaymentOptions): Promise<void>
       throw new Error(errMsg);
     }
 
-    const redirectUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url;
+    const redirectUrl = data.invoice_url || data.pay_url || data.url || data.payment_url || data.invoice_checkout_url;
 
     if (redirectUrl) {
       window.location.href = redirectUrl;

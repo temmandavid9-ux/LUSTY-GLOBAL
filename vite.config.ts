@@ -113,6 +113,7 @@ function nowPaymentsApiPlugin(): Plugin {
 
         if (req.method !== 'POST') {
           res.statusCode = 405;
+          res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: 'Method Not Allowed' }));
           return;
         }
@@ -125,78 +126,118 @@ function nowPaymentsApiPlugin(): Plugin {
         req.on('end', async () => {
           try {
             const body = JSON.parse(bodyStr || '{}');
-            const { priceAmount, orderId } = body;
+            const { priceAmount, orderId, orderDescription, metadata } = body;
 
             const apiKey = process.env.NOWPAYMENTS_API_KEY || '';
+            const frontendUrl = process.env.FRONTEND_URL || 'https://lusty-global.vercel.app';
 
-            let data;
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+
             if (apiKey) {
-              const requested = Number(priceAmount) || 15;
-              const finalAmount = Math.max(requested, 15);
-
-              const response = await fetch('https://api.nowpayments.io/v1/payment', {
+              const npResponse = await fetch('https://api.nowpayments.io/v1/invoice', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'x-api-key': apiKey,
+                  'x-api-key': apiKey
                 },
                 body: JSON.stringify({
-                  price_amount: finalAmount,
+                  price_amount: Number(priceAmount) || 15.00,
                   price_currency: 'usd',
                   pay_currency: 'usdttrc20',
-                  order_id: orderId || 'sub_' + Date.now(),
-                  ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
-                }),
+                  order_id: orderId || `escrow_${Date.now()}`,
+                  order_description: orderDescription || (metadata ? `Rendezvous with @${metadata.hostUsername || 'host'}` : 'Platform Secure Escrow & Boost'),
+                  ipn_callback_url: `${frontendUrl}/api/ipn`,
+                  success_url: `${frontendUrl}/portal?payment=success`,
+                  cancel_url: `${frontendUrl}/portal?payment=cancelled`
+                })
               });
-              data = await response.json();
 
-              if (!response.ok) {
+              const data = await npResponse.json();
+
+              if (!npResponse.ok) {
                 console.error('NOWPayments API Error:', data);
-                if (data.code === 'AMOUNT_MINIMAL_ERROR') {
-                  const retryRes = await fetch('https://api.nowpayments.io/v1/payment', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'x-api-key': apiKey,
-                    },
-                    body: JSON.stringify({
-                      price_amount: 15.00,
-                      price_currency: 'usd',
-                      pay_currency: 'usdttrc20',
-                      order_id: orderId || 'sub_' + Date.now(),
-                      ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
-                    }),
-                  });
-                  data = await retryRes.json();
-                }
-
-                if (!data.payment_id && !data.invoice_url) {
-                  res.statusCode = response.status || 400;
-                  res.setHeader('Content-Type', 'application/json');
-                  res.end(JSON.stringify({ error: data.message || 'Payment provider rejected request', details: data }));
-                  return;
-                }
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: data.message || 'Payment gateway rejection', details: data }));
+                return;
               }
+
+              res.statusCode = 200;
+              res.end(JSON.stringify({
+                invoice_url: data.invoice_url || data.pay_url,
+                raw: data
+              }));
             } else {
-              // Sandbox / Fallback response if NOWPAYMENTS_API_KEY is not configured yet
-              data = {
-                id: 'np_inv_' + Date.now(),
-                order_id: orderId || 'sub_' + Date.now(),
-                price_amount: priceAmount || 15.00,
-                price_currency: 'usd',
-                pay_currency: 'usdttrc20',
-                invoice_url: `https://nowpayments.io/payment/?iid=${Date.now()}`,
-                created_at: new Date().toISOString()
-              };
+              // Sandbox / Fallback mock response when NOWPAYMENTS_API_KEY is not configured
+              const mockInvoiceUrl = `https://nowpayments.io/payment/?iid=${Date.now()}`;
+              res.statusCode = 200;
+              res.end(JSON.stringify({
+                invoice_url: mockInvoiceUrl,
+                raw: {
+                  id: 'np_inv_' + Date.now(),
+                  order_id: orderId || `escrow_${Date.now()}`,
+                  price_amount: priceAmount || 15.00,
+                  price_currency: 'usd',
+                  pay_currency: 'usdttrc20',
+                  invoice_url: mockInvoiceUrl,
+                  created_at: new Date().toISOString()
+                }
+              }));
             }
+          } catch (err: any) {
+            console.error('Gateway Connection Error:', err);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Internal gateway communication failed', details: err.message }));
+          }
+        });
+      });
+    }
+  };
+}
+
+function cryptoPayoutApiPlugin(): Plugin {
+  return {
+    name: 'crypto-payout-api-plugin',
+    configureServer(server) {
+      server.middlewares.use('/api/request-payout', async (req, res) => {
+        if (req.method === 'OPTIONS') {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+          res.statusCode = 200;
+          res.end();
+          return;
+        }
+
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+          return;
+        }
+
+        let bodyStr = '';
+        req.on('data', (chunk) => {
+          bodyStr += chunk;
+        });
+
+        req.on('end', async () => {
+          try {
+            const body = JSON.parse(bodyStr || '{}');
+            const { amount, payoutMethod } = body;
 
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.statusCode = 200;
-            res.end(JSON.stringify(data));
+            res.end(JSON.stringify({
+              success: true,
+              message: `Payout request of $${Number(amount || 0).toFixed(2)} USD via ${payoutMethod || 'USDT_TRC20'} submitted successfully!`,
+              txId: `payout_tx_${Date.now()}`
+            }));
           } catch (err: any) {
+            console.error('Crypto Payout Route Error:', err);
             res.statusCode = 500;
-            res.end(JSON.stringify({ error: 'Failed to create payment', details: err.message }));
+            res.end(JSON.stringify({ error: 'Failed to process crypto payout request', details: err.message }));
           }
         });
       });
@@ -206,7 +247,7 @@ function nowPaymentsApiPlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss(), tokenizedChargeApiPlugin(), nowPaymentsApiPlugin()],
+  plugins: [react(), tailwindcss(), tokenizedChargeApiPlugin(), nowPaymentsApiPlugin(), cryptoPayoutApiPlugin()],
   server: {
     port: 3000,
     host: true,

@@ -1,21 +1,19 @@
 import { useState } from 'react';
 import { Loader2, ShieldCheck, X } from 'lucide-react';
 
-interface HostBookingModalProps {
-  hostId?: string;
+interface ProposeRendezvousModalProps {
   hostUsername?: string;
   hourlyRate?: number;
   hostAvatar?: string;
   onClose?: () => void;
 }
 
-export default function HostBookingModal({
-  hostId,
-  hostUsername = "samuel",
+export default function ProposeRendezvousModal({
+  hostUsername = "Black Boy",
   hourlyRate = 250.00,
   hostAvatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100",
   onClose
-}: HostBookingModalProps) {
+}: ProposeRendezvousModalProps) {
   const [proposedDate, setProposedDate] = useState('2026-06-28');
   const [proposedTime, setProposedTime] = useState('08:00');
   const [durationHours, setDurationHours] = useState(2);
@@ -27,7 +25,7 @@ export default function HostBookingModal({
   const hostSessionRate = hourlyRate * durationHours;
   const platformBookerFee = 1.00;
   const totalInvoiceCharge = hostSessionRate + platformBookerFee;
-  const escrowDepositAmount = totalInvoiceCharge * 0.30; // 30% Advanced Escrow Deposit
+  const escrowDepositAmount = totalInvoiceCharge * 0.30;
 
   const handleProceedToEscrowPayment = async () => {
     if (loading) return;
@@ -40,7 +38,7 @@ export default function HostBookingModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           priceAmount: escrowDepositAmount,
-          orderId: `rendezvous_escrow_${hostId || 'host'}_${Date.now()}`,
+          orderId: `rendezvous_escrow_${Date.now()}`,
           metadata: {
             hostUsername,
             proposedDate,
@@ -82,6 +80,7 @@ export default function HostBookingModal({
         {/* Close Button */}
         {onClose && (
           <button 
+            type="button"
             onClick={onClose}
             className="absolute top-5 right-5 text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800 p-2 rounded-xl transition cursor-pointer"
           >
@@ -93,7 +92,7 @@ export default function HostBookingModal({
         <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-pink-500" />
-            <h3 className="text-sm font-black text-white font-mono uppercase tracking-wider">PROPOSE RENDEZVOUS</h3>
+            <h3 className="text-sm font-black text-white font-mono uppercase tracking-wider">BOOKING & ESCROW</h3>
           </div>
         </div>
 
@@ -113,9 +112,8 @@ export default function HostBookingModal({
         </div>
 
         {/* Form Fields */}
-        <div className="space-y-4 text-xs font-mono text-left">
+        <div className="space-y-4 text-xs font-mono max-h-[60vh] overflow-y-auto pr-1 text-left">
           
-          {/* Date & Time Row */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[9px] uppercase text-zinc-500 mb-1">Proposed Date</label>
@@ -137,7 +135,6 @@ export default function HostBookingModal({
             </div>
           </div>
 
-          {/* Duration Selector */}
           <div>
             <div className="flex justify-between items-center mb-1">
               <label className="text-[9px] uppercase text-zinc-500">Duration (Hours)</label>
@@ -156,31 +153,27 @@ export default function HostBookingModal({
             </select>
           </div>
 
-          {/* Meeting Location */}
           <div>
             <label className="block text-[9px] uppercase text-zinc-500 mb-1">Meeting Location</label>
             <input
               type="text"
               value={meetingLocation}
               onChange={(e) => setMeetingLocation(e.target.value)}
-              placeholder="e.g., VIP Lounge Room 1 - London Mayfair"
               className="w-full bg-zinc-950 text-white border border-zinc-800 rounded-xl px-3 py-2.5 focus:outline-none focus:border-pink-500 text-xs"
             />
           </div>
 
-          {/* Custom Notes */}
           <div>
             <label className="block text-[9px] uppercase text-zinc-500 mb-1">Custom Notes / Instructions</label>
             <textarea
               value={customNotes}
               onChange={(e) => setCustomNotes(e.target.value)}
-              placeholder="e.g., Champagne preferences, formal dress code, specific timing guidelines..."
               rows={2}
               className="w-full bg-zinc-950 text-white border border-zinc-800 rounded-xl px-3 py-2 focus:outline-none focus:border-pink-500 text-xs resize-none"
             />
           </div>
 
-          {/* Booking Summary Invoice */}
+          {/* Invoice Summary */}
           <div className="bg-zinc-950 border border-zinc-850 rounded-2xl p-4 space-y-2.5">
             <div className="flex justify-between items-center border-b border-zinc-900 pb-2">
               <span className="text-[10px] uppercase font-bold text-zinc-400">Booking Summary Invoice</span>
@@ -216,7 +209,7 @@ export default function HostBookingModal({
           )}
 
           <p className="text-[10px] text-zinc-500 text-center leading-relaxed">
-            Escrow guarantee holds deposit safely. Companion will only be paid once the rendezvous is confirmed live. Cancellations are 100% refundable up to 4 hrs before the scheduled time.
+            Escrow guarantee holds deposit safely. Companion will only be paid once the rendezvous is confirmed live. Cancellations are 100% refundable up to 4 hrs before scheduled time.
           </p>
 
           {/* Action Button */}
@@ -232,7 +225,7 @@ export default function HostBookingModal({
                 <span>Generating USDT Invoice...</span>
               </>
             ) : (
-              <span>Proceed to Escrow Payment Checkout</span>
+              <span>PROCEED TO ESCROW PAYMENT CHECKOUT</span>
             )}
           </button>
 
@@ -243,4 +236,4 @@ export default function HostBookingModal({
   );
 }
 
-export { HostBookingModal, HostBookingModal as ProposeRendezvousModal };
+export { ProposeRendezvousModal, ProposeRendezvousModal as HostBookingModal };

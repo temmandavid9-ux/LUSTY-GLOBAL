@@ -40,15 +40,18 @@ export default function TipTokenModal({
       });
 
       const data = await response.json();
+      console.log('Gateway Response Payload:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to create crypto tip invoice');
       }
 
-      if (data.invoice_url) {
-        window.location.href = data.invoice_url;
+      const redirectUrl = data.invoice_url || data.pay_url || data.url || data.payment_url || data.invoice_checkout_url;
+
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
       } else {
-        throw new Error('No invoice URL returned from payment gateway');
+        throw new Error(data.error || 'No invoice URL returned from payment gateway');
       }
 
     } catch (err: any) {

@@ -660,15 +660,11 @@ export function CompanionDirectoryCard({
           <button 
             onClick={(e) => {
               e.stopPropagation();
-              setShowBookingPanel(!showBookingPanel);
+              setShowHostBookingModal(true);
             }}
-            className={`w-full font-bold text-[10px] py-1.5 rounded-lg transition-all shadow-md cursor-pointer pointer-events-auto ${
-              showBookingPanel 
-                ? 'bg-zinc-950 border border-zinc-800 text-zinc-400'
-                : 'bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white shadow-lg shadow-pink-500/10'
-            }`}
+            className="w-full font-extrabold text-[10px] uppercase tracking-wider py-2 rounded-xl transition-all shadow-md cursor-pointer pointer-events-auto bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black flex items-center justify-center gap-1 shadow-amber-950/20 active:scale-[0.98]"
           >
-            📅 {showBookingPanel ? 'Cancel' : 'Book'}
+            📅 Propose Rendezvous (${companion.ratePerHour}/hr)
           </button>
         </div>
       </div>

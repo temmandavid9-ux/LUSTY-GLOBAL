@@ -29,7 +29,8 @@ export default function CheckoutButton({
       });
 
       const data = await res.json();
-      const redirectUrl = data.invoice_url || data.payment_url || data.invoice_checkout_url;
+      console.log('Gateway Response Payload:', data);
+      const redirectUrl = data.invoice_url || data.pay_url || data.url || data.payment_url || data.invoice_checkout_url;
 
       if (redirectUrl) {
         toast.loading('Redirecting to NOWPayments USDT secure checkout...', { duration: 2000 });
