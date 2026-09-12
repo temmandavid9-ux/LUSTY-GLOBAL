@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Search, Loader2, Heart, Mic, MicOff } from 'lucide-react';
 import { Companion, Booking } from '../types';
 import { CompanionDirectoryCard } from './CompanionDirectoryCard';
+import SupportEmailLink from './SupportEmailLink';
 import { calculateDistanceInMiles } from '../utils/geo';
 
 interface DirectoryViewProps {
@@ -267,11 +268,12 @@ export default function DirectoryView({
           }
         }
 
-        // Select all profiles ordered by is_verified desc (verified profiles first)
+        // Select all profiles ordered by is_verified desc (verified profiles first) and last_seen desc
         let query = supabase
           .from('profiles')
           .select('*')
-          .order('is_verified', { ascending: false });
+          .order('is_verified', { ascending: false })
+          .order('last_seen', { ascending: false });
 
         if (activeUserId) {
           query = query.neq('id', activeUserId);
@@ -280,8 +282,11 @@ export default function DirectoryView({
         let { data, error } = await query;
         
         if (error) {
-          console.warn("Primary query failed, trying basic select:", error.message);
-          const fallback = await supabase.from('profiles').select('*');
+          console.warn("Primary query with last_seen failed, falling back to ordering by is_verified:", error.message);
+          const fallback = await supabase
+            .from('profiles')
+            .select('*')
+            .order('is_verified', { ascending: false });
           data = fallback.data;
         }
 
@@ -391,9 +396,9 @@ export default function DirectoryView({
           coverImage,
           'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600'
         ],
-        isVIP: !!(profile.is_verified || profile.tier_badge === 'VIP SELECT' || matchingCompanion?.isVIP),
-        is_verified: !!(profile.is_verified || matchingCompanion?.isVIP),
-        isVerified: !!(profile.is_verified || matchingCompanion?.isVIP),
+        isVIP: profile.is_verified === true || profile.is_verified === 'true' || profile.tier_badge === 'VIP SELECT',
+        is_verified: profile.is_verified === true || profile.is_verified === 'true',
+        isVerified: profile.is_verified === true || profile.is_verified === 'true',
         isOnline: profile.is_online === true || ((profile.last_login || profile.last_seen) && new Date(profile.last_login || profile.last_seen).getTime() > Date.now() - 5 * 60 * 1000),
         lastSeen: profile.last_login || profile.last_seen,
         last_login: profile.last_login || profile.last_seen,
@@ -405,8 +410,8 @@ export default function DirectoryView({
         bio: profile.bio || matchingCompanion?.bio || 'Verified VIP guest. Rates available on demand 🔒',
         default_caption: profile.default_caption || profile.title || profile.bio || matchingCompanion?.bio || 'Verified VIP guest. Rates available on demand 🔒',
         tags: tags.length > 0 ? tags : (matchingCompanion?.tags || []),
-        rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT' || matchingCompanion?.isVIP) ? 5.0 : (profile.rating || 4.9),
-        avg_rating: (profile.is_verified || profile.tier_badge === 'VIP SELECT' || matchingCompanion?.isVIP) ? 5.0 : (profile.avg_rating || profile.rating || 4.9),
+        rating: (profile.is_verified === true || profile.is_verified === 'true' || profile.tier_badge === 'VIP SELECT') ? 5.0 : (profile.rating || 4.9),
+        avg_rating: (profile.is_verified === true || profile.is_verified === 'true' || profile.tier_badge === 'VIP SELECT') ? 5.0 : (profile.avg_rating || profile.rating || 4.9),
         reviewsCount: profile.reviews_count || matchingCompanion?.reviewsCount || 42,
         verifiedAt: profile.verified_at || matchingCompanion?.verifiedAt || 'June 2026',
         languages: profile.languages || matchingCompanion?.languages || ['English'],
@@ -730,7 +735,13 @@ export default function DirectoryView({
         </div>
       )}
 
-
+      {/* FOOTER SUPPORT SECTION */}
+      <footer className="mt-8 pt-6 border-t border-zinc-800/60 flex flex-col sm:flex-row items-center justify-between gap-4 text-zinc-500 text-xs">
+        <p className="font-mono text-[11px] text-zinc-500">
+          © {new Date().getFullYear()} Lusty Global VIP Directory. All rights reserved.
+        </p>
+        <SupportEmailLink />
+      </footer>
 
     </div>
   );

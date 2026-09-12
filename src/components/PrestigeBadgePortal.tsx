@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Loader2, ShieldCheck, ChevronRight } from 'lucide-react';
+import SupportEmailLink from './SupportEmailLink';
 
 export default function PrestigeBadgePortal({ 
   currentUserId, 
@@ -41,7 +42,16 @@ export default function PrestigeBadgePortal({
         }),
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get('content-type');
+      let data: any = {};
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.warn('Non-JSON response received from payment API:', text.slice(0, 100));
+        throw new Error('Payment gateway is currently unavailable or misconfigured.');
+      }
+
       console.log('Gateway Response Payload:', data);
 
       if (!response.ok) {
@@ -111,6 +121,13 @@ export default function PrestigeBadgePortal({
               </>
             )}
           </button>
+
+          <div className="mt-3 flex justify-center">
+            <SupportEmailLink 
+              subject="Lusty Global Badge Activation Support"
+              className="text-[11px] text-zinc-500 hover:text-sky-400 opacity-80 hover:opacity-100"
+            />
+          </div>
         </div>
       </div>
     </div>
