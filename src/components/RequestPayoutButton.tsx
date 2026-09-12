@@ -7,7 +7,7 @@ interface RequestPayoutButtonProps {
   escrowBalance?: number;
   settledBalance?: number;
   payoutConfigured?: boolean;
-  onPayoutRequested: () => void;
+  onPayoutRequested: (amount?: number) => void;
 }
 
 export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
@@ -123,13 +123,15 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
           amount={numericPayoutAmount}
           userId={currentUserId}
           settledBalance={availableToWithdraw}
+          onPayoutSuccess={(disbursedAmt) => {
+            onPayoutRequested(disbursedAmt);
+          }}
           onClose={() => {
             setShowConfirm(false);
-            onPayoutRequested();
+            onPayoutRequested(numericPayoutAmount);
           }}
         />
       )}
     </div>
   );
 };
-

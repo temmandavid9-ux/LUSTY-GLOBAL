@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 export function useHostSettlements(userId: string | undefined) {
@@ -8,10 +8,24 @@ export function useHostSettlements(userId: string | undefined) {
     settled: 0
   });
 
-  useEffect(() => {
+  const fetchSettlements = useCallback(async () => {
     if (!userId) return;
 
-    async function fetchSettlements() {
+    try {
+      // 0. Check profile settled_balance first
+      let profileSettledBalance: number | null = null;
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('settled_balance, earnings')
+        .eq('id', userId)
+        .single();
+
+      if (profile && (profile.settled_balance !== null && profile.settled_balance !== undefined)) {
+        profileSettledBalance = Number(profile.settled_balance);
+      } else if (profile && (profile.earnings !== null && profile.earnings !== undefined)) {
+        profileSettledBalance = Number(profile.earnings);
+      }
+
       // 1. Query booking_ledgers scoped to the active user as a companion or client
       let { data, error } = await supabase
         .from('booking_ledgers')
@@ -58,55 +72,72 @@ export function useHostSettlements(userId: string | undefined) {
         }
       }
 
-      if (!data) return;
-
-      // 2. Aggregate totals based on status categories case-insensitively
       let pendingSum = 0;
       let processingSum = 0;
       let settledSum = 0;
 
-      data.forEach((record: any) => {
-        const status = String(record.status || record.escrow_status || record.settlement_status || '').toLowerCase();
-        const rawAmt = 
-          record.gross_amount ?? 
-          record.net_payout ?? 
-          record.amount ?? 
-          (record.hourly_rate_at_booking ? record.hourly_rate_at_booking * (record.duration_hours || 1) : null) ?? 
-          (record.rate ? record.rate * (record.duration || 1) : null) ?? 
-          0;
-        const amount = Number(rawAmt || 0);
-
-        if (['pending', 'escrowed', 'paid_escrow', 'funded', 'held'].includes(status)) {
-          pendingSum += amount;
-        } else if (['processing', 'pending_transfer', 'active', 'pending_confirmation'].includes(status)) {
-          processingSum += amount;
-        } else if (['settled', 'completed', 'released'].includes(status)) {
-          settledSum += amount;
-        } else if (status) {
-          if (status.includes('pend') || status.includes('hold') || status.includes('escrow')) {
-            pendingSum += amount;
-          } else if (status.includes('process') || status.includes('transf')) {
-            processingSum += amount;
-          } else if (status.includes('settle') || status.includes('complete') || status.includes('release') || status.includes('success')) {
-            settledSum += amount;
-          } else {
-            pendingSum += amount;
+      if (data && data.length > 0) {
+        data.forEach((record: any) => {
+          const status = String(record.status || record.escrow_status || record.settlement_status || '').toLowerCase();
+          
+          // Ignore records that have already been withdrawn / paid out
+          if (['withdrawn', 'paid_out', 'disbursed', 'archived', 'payout'].includes(status)) {
+            return;
           }
-        }
-      });
+
+          const rawAmt = 
+            record.gross_amount ?? 
+            record.net_payout ?? 
+            record.amount ?? 
+            (record.hourly_rate_at_booking ? record.hourly_rate_at_booking * (record.duration_hours || 1) : null) ?? 
+            (record.rate ? record.rate * (record.duration || 1) : null) ?? 
+            0;
+          const amount = Number(rawAmt || 0);
+
+          if (['pending', 'escrowed', 'paid_escrow', 'funded', 'held'].includes(status)) {
+            pendingSum += amount;
+          } else if (['processing', 'pending_transfer', 'active', 'pending_confirmation'].includes(status)) {
+            processingSum += amount;
+          } else if (['settled', 'completed', 'released'].includes(status)) {
+            settledSum += amount;
+          } else if (status) {
+            if (status.includes('pend') || status.includes('hold') || status.includes('escrow')) {
+              pendingSum += amount;
+            } else if (status.includes('process') || status.includes('transf')) {
+              processingSum += amount;
+            } else if (status.includes('settle') || status.includes('complete') || status.includes('release') || status.includes('success')) {
+              settledSum += amount;
+            } else {
+              pendingSum += amount;
+            }
+          }
+        });
+      }
+
+      // If user profile explicitly defines settled_balance (e.g. 0 after payout), prioritize it
+      const finalSettled = profileSettledBalance !== null ? profileSettledBalance : settledSum;
 
       setSettlements({
         pending: pendingSum,
         processing: processingSum,
-        settled: settledSum
+        settled: Math.max(0, finalSettled)
       });
+    } catch (err) {
+      console.warn("Error fetching settlements:", err);
     }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
 
     fetchSettlements();
 
-    // 3. Real-time sync listener for live updates
+    // Real-time sync listener for live updates
     const channel = supabase
       .channel(`settlements-realtime-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        fetchSettlements();
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
         fetchSettlements();
       })
@@ -121,7 +152,10 @@ export function useHostSettlements(userId: string | undefined) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [userId, fetchSettlements]);
 
-  return settlements;
+  return {
+    ...settlements,
+    refetch: fetchSettlements
+  };
 }

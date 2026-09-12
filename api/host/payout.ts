@@ -43,6 +43,19 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    // Deduct balance in Supabase
+    if (userId && supabase) {
+      try {
+        const newBalance = Math.max(0, availableBalance - reqAmount);
+        await supabase
+          .from('profiles')
+          .update({ settled_balance: newBalance, earnings: newBalance })
+          .eq('id', userId);
+      } catch (dbErr) {
+        console.warn("DB deduction error:", dbErr);
+      }
+    }
+
     const apiKey = process.env.NOWPAYMENTS_API_KEY || '';
 
     if (apiKey && walletAddress) {
@@ -69,9 +82,9 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ success: false, message: data.message || 'Payout network error.' });
       }
 
-      return res.status(200).json({ success: true, payoutId: data.id });
+      return res.status(200).json({ success: true, payoutId: data.id, newBalance: Math.max(0, availableBalance - reqAmount) });
     } else {
-      return res.status(200).json({ success: true, payoutId: `payout_sim_${Date.now()}` });
+      return res.status(200).json({ success: true, payoutId: `payout_sim_${Date.now()}`, newBalance: Math.max(0, availableBalance - reqAmount) });
     }
   } catch (error: any) {
     console.error('Payout processing error:', error);

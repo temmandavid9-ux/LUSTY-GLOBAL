@@ -84,11 +84,12 @@ export default function VerificationPayoutDashboard({
   // Payout / Ledger States
   const [earningsBalance, setEarningsBalance] = useState(1450.00);
   const [totalWithdrawn, setTotalWithdrawn] = useState(3800.00);
+  const [localPayoutDeduction, setLocalPayoutDeduction] = useState(0);
   const hostSettlements = useHostSettlements(userProfile?.id);
 
   const pendingLedgerBalance = hostSettlements.pending;
   const processingLedgerBalance = hostSettlements.processing;
-  const settledLedgerBalance = hostSettlements.settled;
+  const settledLedgerBalance = Math.max(0, hostSettlements.settled - localPayoutDeduction);
 
   const fetchLedgerBalances = async () => {
     if (!userProfile?.id) return;
@@ -937,8 +938,12 @@ export default function VerificationPayoutDashboard({
                     return false;
                   })()
                 )}
-                onPayoutRequested={() => {
-                  // Refresh dashboard stats instantly
+                onPayoutRequested={(disbursedAmt) => {
+                  const amt = Number(disbursedAmt) || 250.00;
+                  setLocalPayoutDeduction(prev => prev + amt);
+                  if (hostSettlements.refetch) {
+                    hostSettlements.refetch();
+                  }
                   fetchLedgerBalances();
                   setRefreshTrigger(prev => prev + 1);
                 }}

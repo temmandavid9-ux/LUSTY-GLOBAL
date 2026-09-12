@@ -72,14 +72,87 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ success: false, error: data.message || 'Payout network error from payment gateway.' });
       }
 
+      // Deduct balance in Supabase on successful payout dispatch
+      if (userId && supabase) {
+        try {
+          const newBalance = Math.max(0, availableBalance - reqAmount);
+          await supabase
+            .from('profiles')
+            .update({ settled_balance: newBalance, earnings: newBalance })
+            .eq('id', userId);
+
+          try {
+            await supabase
+              .from('transaction_history')
+              .insert([{ sender_id: userId, receiver_id: 'system', amount: reqAmount, type: 'payout', status: 'completed', created_at: new Date().toISOString() }]);
+          } catch {}
+
+          const { data: ledgers } = await supabase
+            .from('booking_ledgers')
+            .select('id, gross_amount, status')
+            .or(`companion_id.eq.${userId},client_id.eq.${userId}`);
+
+          if (ledgers && ledgers.length > 0) {
+            let rem = reqAmount;
+            for (const l of ledgers) {
+              if (rem <= 0) break;
+              const status = String(l.status || '').toLowerCase();
+              if (['settled', 'completed', 'released'].includes(status)) {
+                await supabase.from('booking_ledgers').update({ status: 'withdrawn' }).eq('id', l.id);
+                rem -= Number(l.gross_amount || 0);
+              }
+            }
+          }
+        } catch (dbErr) {
+          console.warn("DB deduction warning:", dbErr);
+        }
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Payout request processed successfully',
         payoutId: data.id,
         amount: reqAmount,
+        newBalance: Math.max(0, availableBalance - reqAmount),
         payoutMethod: payoutMethod || 'USDT_TRC20',
         timestamp: Date.now(),
       });
+    }
+
+    // Default Sandbox / Simulated payout execution: Deduct balance in Supabase
+    if (userId && supabase) {
+      try {
+        const newBalance = Math.max(0, availableBalance - reqAmount);
+        await supabase
+          .from('profiles')
+          .update({ settled_balance: newBalance, earnings: newBalance })
+          .eq('id', userId);
+
+        try {
+          await supabase
+            .from('transaction_history')
+            .insert([{ sender_id: userId, receiver_id: 'system', amount: reqAmount, type: 'payout', status: 'completed', created_at: new Date().toISOString() }]);
+        } catch {}
+
+        const { data: ledgers } = await supabase
+          .from('booking_ledgers')
+          .select('id, gross_amount, status')
+          .or(`companion_id.eq.${userId},client_id.eq.${userId}`);
+
+        if (ledgers && ledgers.length > 0) {
+          let rem = reqAmount;
+          for (const l of ledgers) {
+            if (rem <= 0) break;
+            const status = String(l.status || '').toLowerCase();
+            if (['settled', 'completed', 'released'].includes(status)) {
+              await supabase.from('booking_ledgers').update({ status: 'withdrawn' }).eq('id', l.id);
+              rem -= Number(l.gross_amount || 0);
+            }
+          }
+        }
+      } catch (dbErr) {
+        console.warn("DB deduction warning:", dbErr);
+      }
     }
 
     return res.status(200).json({
@@ -87,6 +160,7 @@ export default async function handler(req: any, res: any) {
       message: 'Payout request processed successfully',
       payoutId: `payout_sim_${Date.now()}`,
       amount: reqAmount,
+      newBalance: Math.max(0, availableBalance - reqAmount),
       payoutMethod: payoutMethod || 'USDT_TRC20',
       timestamp: Date.now(),
     });

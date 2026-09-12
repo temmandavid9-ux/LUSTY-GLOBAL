@@ -6,13 +6,15 @@ interface CryptoPayoutModalProps {
   userId?: string;
   settledBalance?: number;
   onClose?: () => void;
+  onPayoutSuccess?: (amount: number) => void;
 }
 
 export default function CryptoPayoutModal({
   amount = 250.00,
   userId,
   settledBalance,
-  onClose
+  onClose,
+  onPayoutSuccess
 }: CryptoPayoutModalProps) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -49,6 +51,9 @@ export default function CryptoPayoutModal({
       }
 
       setSuccess(true);
+      if (onPayoutSuccess) {
+        onPayoutSuccess(amount);
+      }
     } catch (err: any) {
       console.error('Payout error:', err);
       setErrorMsg(err.message || 'Payout request failed. Please check your available balance and wallet.');
