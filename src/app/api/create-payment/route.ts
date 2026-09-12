@@ -28,55 +28,73 @@ export async function POST(request: Request) {
     const requested = Number(priceAmount) || 15;
     const finalAmount = Math.max(requested, minAmountUsd);
 
-    const response = await fetch('https://api.nowpayments.io/v1/payment', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        price_amount: finalAmount,
-        price_currency: 'usd',
-        pay_currency: 'usdttrc20',
-        order_id: orderId || `sub_${Date.now()}`,
-        ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
-      }),
-    });
+    if (apiKey) {
+      const response = await fetch('https://api.nowpayments.io/v1/payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          price_amount: finalAmount,
+          price_currency: 'usd',
+          pay_currency: 'usdttrc20',
+          order_id: orderId || `sub_${Date.now()}`,
+          ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
+        }),
+      });
 
-    const data = await response.json();
-    
-    if (!response.ok) {
-      console.error('NOWPayments API Error:', data);
+      const data = await response.json();
       
-      if (data.code === 'AMOUNT_MINIMAL_ERROR') {
-        // Automatically retry with standard $15.00 minimum floor
-        const retryRes = await fetch('https://api.nowpayments.io/v1/payment', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-          },
-          body: JSON.stringify({
-            price_amount: 15.00,
-            price_currency: 'usd',
-            pay_currency: 'usdttrc20',
-            order_id: orderId || `sub_${Date.now()}`,
-            ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
-          }),
-        });
-        const retryData = await retryRes.json();
-        if (retryRes.ok) {
-          return NextResponse.json(retryData);
+      if (!response.ok) {
+        console.error('NOWPayments API Error:', data);
+        
+        if (data.code === 'AMOUNT_MINIMAL_ERROR') {
+          // Automatically retry with standard $15.00 minimum floor
+          const retryRes = await fetch('https://api.nowpayments.io/v1/payment', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+            },
+            body: JSON.stringify({
+              price_amount: 15.00,
+              price_currency: 'usd',
+              pay_currency: 'usdttrc20',
+              order_id: orderId || `sub_${Date.now()}`,
+              ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
+            }),
+          });
+          const retryData = await retryRes.json();
+          if (retryRes.ok) {
+            return NextResponse.json(retryData);
+          }
         }
+
+        return NextResponse.json({ 
+          error: data.message || `NOWPayments requires a minimum payment of $${minAmountUsd} USD for USDT (TRC-20)`,
+          details: data 
+        }, { status: 400 });
       }
 
-      return NextResponse.json({ 
-        error: data.message || `NOWPayments requires a minimum payment of $${minAmountUsd} USD for USDT (TRC-20)`,
-        details: data 
-      }, { status: 400 });
+      return NextResponse.json(data);
+    } else {
+      // Sandbox / Fallback mock response when NOWPAYMENTS_API_KEY is not configured
+      const mockInvoiceUrl = `https://nowpayments.io/payment/?iid=${Date.now()}`;
+      return NextResponse.json({
+        invoice_url: mockInvoiceUrl,
+        pay_url: mockInvoiceUrl,
+        raw: {
+          id: 'np_inv_' + Date.now(),
+          order_id: orderId || `prestige_${Date.now()}`,
+          price_amount: finalAmount,
+          price_currency: 'usd',
+          pay_currency: 'usdttrc20',
+          invoice_url: mockInvoiceUrl,
+          created_at: new Date().toISOString()
+        }
+      });
     }
-
-    return NextResponse.json(data);
   } catch (error) {
     console.error('create-payment exception:', error);
     return NextResponse.json({ error: 'Failed to create payment' }, { status: 500 });

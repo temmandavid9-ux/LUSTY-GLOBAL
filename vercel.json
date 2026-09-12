@@ -5,8 +5,24 @@
       "destination": "/api/create-payment"
     },
     {
+      "source": "/api/request-payout",
+      "destination": "/api/request-payout"
+    },
+    {
       "source": "/api/host/payout",
       "destination": "/api/host/payout"
+    },
+    {
+      "source": "/api/charge-saved-card",
+      "destination": "/api/charge-saved-card"
+    },
+    {
+      "source": "/api/charge-manual-card",
+      "destination": "/api/charge-manual-card"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }
