@@ -5,6 +5,7 @@ interface RequestPayoutButtonProps {
   currentUserId: string;
   pendingBalance: number;
   escrowBalance?: number;
+  settledBalance?: number;
   payoutConfigured?: boolean;
   onPayoutRequested: () => void;
 }
@@ -13,6 +14,7 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
   currentUserId,
   pendingBalance,
   escrowBalance = 0,
+  settledBalance = 0,
   payoutConfigured = false,
   onPayoutRequested,
 }) => {
@@ -20,8 +22,9 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
   const [showConfirm, setShowConfirm] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ALWAYS look at the Escrow/Vault balance (or fall back to pending balance, or default to 0.00)
-  const availableToWithdraw = (escrowBalance && escrowBalance > 0) ? escrowBalance : (pendingBalance > 0 ? pendingBalance : 0.00);
+  // Available withdrawable amount based strictly on settled/escrow balance
+  const availableToWithdraw = (escrowBalance && escrowBalance > 0) ? escrowBalance : (settledBalance > 0 ? settledBalance : 0.00);
+  void pendingBalance;
 
   // 1. Track the Input State for withdrawal amount
   const [payoutAmount, setPayoutAmount] = useState<string>(availableToWithdraw.toFixed(2));
@@ -29,7 +32,7 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
 
   // Sync initial payoutAmount when availableToWithdraw changes only if user hasn't typed custom input
   React.useEffect(() => {
-    if (!userHasEdited && availableToWithdraw > 0) {
+    if (!userHasEdited) {
       setPayoutAmount(availableToWithdraw.toFixed(2));
     }
   }, [availableToWithdraw, userHasEdited]);
@@ -59,6 +62,12 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
 
     if (numericPayoutAmount <= 0) {
       setErrorMsg("Please enter a valid payout amount greater than $0.00.");
+      return;
+    }
+
+    // Strict balance check: cannot withdraw if requested amount exceeds available settled balance
+    if (numericPayoutAmount > availableToWithdraw || availableToWithdraw <= 0) {
+      setErrorMsg(`Cannot request payout. Requested amount ($${numericPayoutAmount.toFixed(2)}) exceeds available settled balance ($${availableToWithdraw.toFixed(2)}).`);
       return;
     }
 
@@ -112,6 +121,8 @@ export const RequestPayoutButton: React.FC<RequestPayoutButtonProps> = ({
       {showConfirm && (
         <CryptoPayoutModal
           amount={numericPayoutAmount}
+          userId={currentUserId}
+          settledBalance={availableToWithdraw}
           onClose={() => {
             setShowConfirm(false);
             onPayoutRequested();

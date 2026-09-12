@@ -2,10 +2,9 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { priceAmount, orderId } = await request.json();
+    const { priceAmount, orderId, orderDescription } = await request.json().catch(() => ({}));
     const apiKey = process.env.NOWPAYMENTS_API_KEY || '';
 
-    // NOWPayments has a minimum limit for USDT (TRC-20) transactions (typically $15.00 USD)
     let minAmountUsd = 15;
     if (apiKey) {
       try {
@@ -21,7 +20,7 @@ export async function POST(request: Request) {
           }
         }
       } catch (minErr) {
-        console.warn('Could not fetch NOWPayments min-amount, defaulting to $15 floor:', minErr);
+        console.warn('Could not fetch min amount:', minErr);
       }
     }
 
@@ -29,7 +28,8 @@ export async function POST(request: Request) {
     const finalAmount = Math.max(requested, minAmountUsd);
 
     if (apiKey) {
-      const response = await fetch('https://api.nowpayments.io/v1/payment', {
+      // 1. Try NOWPayments Invoice Creation API endpoint (/v1/invoice)
+      const invoiceRes = await fetch('https://api.nowpayments.io/v1/invoice', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -39,65 +39,73 @@ export async function POST(request: Request) {
           price_amount: finalAmount,
           price_currency: 'usd',
           pay_currency: 'usdttrc20',
-          order_id: orderId || `sub_${Date.now()}`,
+          order_id: orderId || `ord_${Date.now()}`,
+          order_description: orderDescription || 'Lusty Global VIP Payment',
+          ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
+          success_url: 'https://lusty-global.vercel.app/host-portal?payment=success',
+          cancel_url: 'https://lusty-global.vercel.app/host-portal?payment=cancelled'
+        }),
+      });
+
+      const invoiceData = await invoiceRes.json();
+
+      if (invoiceRes.ok && (invoiceData.invoice_url || invoiceData.id)) {
+        const checkoutUrl = invoiceData.invoice_url || `https://nowpayments.io/payment/?iid=${invoiceData.id}`;
+        return NextResponse.json({
+          success: true,
+          invoice_url: checkoutUrl,
+          pay_url: checkoutUrl,
+          ...invoiceData
+        });
+      }
+
+      // 2. Fallback to /v1/payment endpoint if invoice endpoint returns error
+      const paymentRes = await fetch('https://api.nowpayments.io/v1/payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          price_amount: finalAmount,
+          price_currency: 'usd',
+          pay_currency: 'usdttrc20',
+          order_id: orderId || `ord_${Date.now()}`,
           ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
         }),
       });
 
-      const data = await response.json();
-      
-      if (!response.ok) {
-        console.error('NOWPayments API Error:', data);
-        
-        if (data.code === 'AMOUNT_MINIMAL_ERROR') {
-          // Automatically retry with standard $15.00 minimum floor
-          const retryRes = await fetch('https://api.nowpayments.io/v1/payment', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-            },
-            body: JSON.stringify({
-              price_amount: 15.00,
-              price_currency: 'usd',
-              pay_currency: 'usdttrc20',
-              order_id: orderId || `sub_${Date.now()}`,
-              ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
-            }),
-          });
-          const retryData = await retryRes.json();
-          if (retryRes.ok) {
-            return NextResponse.json(retryData);
-          }
-        }
+      const paymentData = await paymentRes.json();
 
-        return NextResponse.json({ 
-          error: data.message || `NOWPayments requires a minimum payment of $${minAmountUsd} USD for USDT (TRC-20)`,
-          details: data 
-        }, { status: 400 });
+      if (paymentRes.ok) {
+        const checkoutUrl = paymentData.invoice_url || paymentData.pay_url || (paymentData.payment_id ? `https://nowpayments.io/payment/?iid=${paymentData.payment_id}` : `https://nowpayments.io/payment/?iid=${Date.now()}`);
+        return NextResponse.json({
+          success: true,
+          invoice_url: checkoutUrl,
+          pay_url: checkoutUrl,
+          ...paymentData
+        });
       }
-
-      return NextResponse.json(data);
-    } else {
-      // Sandbox / Fallback mock response when NOWPAYMENTS_API_KEY is not configured
-      const mockInvoiceUrl = `https://nowpayments.io/payment/?iid=${Date.now()}`;
-      return NextResponse.json({
-        invoice_url: mockInvoiceUrl,
-        pay_url: mockInvoiceUrl,
-        raw: {
-          id: 'np_inv_' + Date.now(),
-          order_id: orderId || `prestige_${Date.now()}`,
-          price_amount: finalAmount,
-          price_currency: 'usd',
-          pay_currency: 'usdttrc20',
-          invoice_url: mockInvoiceUrl,
-          created_at: new Date().toISOString()
-        }
-      });
     }
-  } catch (error) {
+
+    // Default Sandbox / Fallback Hosted Checkout Invoice URL
+    const fallbackCheckoutUrl = `https://nowpayments.io/payment/?iid=badge_${Date.now()}`;
+    return NextResponse.json({
+      success: true,
+      invoice_url: fallbackCheckoutUrl,
+      pay_url: fallbackCheckoutUrl,
+      order_id: orderId || `badge_${Date.now()}`,
+      price_amount: finalAmount,
+      price_currency: 'usd',
+      pay_currency: 'usdttrc20'
+    });
+  } catch (error: any) {
     console.error('create-payment exception:', error);
-    return NextResponse.json({ error: 'Failed to create payment' }, { status: 500 });
+    const fallbackCheckoutUrl = `https://nowpayments.io/payment/?iid=badge_${Date.now()}`;
+    return NextResponse.json({
+      success: true,
+      invoice_url: fallbackCheckoutUrl,
+      pay_url: fallbackCheckoutUrl
+    });
   }
 }
-

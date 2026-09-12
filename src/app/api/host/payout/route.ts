@@ -1,12 +1,44 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+
+const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 export async function POST(request: Request) {
   try {
-    const { walletAddress, network, amount } = await request.json();
+    const { walletAddress, network, amount, userId } = await request.json().catch(() => ({}));
+    const reqAmount = Number(amount) || 0;
+
+    if (reqAmount <= 0) {
+      return NextResponse.json({ success: false, message: 'Invalid payout amount.' }, { status: 400 });
+    }
+
+    if (userId && supabase) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('settled_balance, earnings')
+        .eq('id', userId)
+        .single();
+
+      if (profile) {
+        const availableBalance = Number(profile.settled_balance ?? profile.earnings ?? 0);
+        if (reqAmount > availableBalance || availableBalance <= 0) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `Requested amount ($${reqAmount.toFixed(2)}) exceeds available settled balance ($${availableBalance.toFixed(2)}).`
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
 
     const apiKey = process.env.NOWPAYMENTS_API_KEY || '';
 
-    if (apiKey) {
+    if (apiKey && walletAddress) {
       const response = await fetch('https://api.nowpayments.io/v1/payout', {
         method: 'POST',
         headers: {
@@ -17,7 +49,7 @@ export async function POST(request: Request) {
           withdrawals: [
             {
               address: walletAddress,
-              amount: Number(amount),
+              amount: reqAmount,
               currency: network === 'TRC20' ? 'usdttrc20' : (network === 'ERC20' ? 'usdterc20' : 'usdt')
             }
           ]

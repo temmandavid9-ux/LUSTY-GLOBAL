@@ -3,11 +3,15 @@ import { Loader2, Wallet, X } from 'lucide-react';
 
 interface CryptoPayoutModalProps {
   amount?: number;
+  userId?: string;
+  settledBalance?: number;
   onClose?: () => void;
 }
 
 export default function CryptoPayoutModal({
   amount = 250.00,
+  userId,
+  settledBalance,
   onClose
 }: CryptoPayoutModalProps) {
   const [loading, setLoading] = useState(false);
@@ -16,6 +20,13 @@ export default function CryptoPayoutModal({
 
   const handleDisburseCrypto = async () => {
     if (loading) return;
+    
+    // Client safety check before hitting API
+    if (typeof settledBalance === 'number' && amount > settledBalance) {
+      setErrorMsg(`Insufficient funds. Your settled balance is $${settledBalance.toFixed(2)}.`);
+      return;
+    }
+
     setLoading(true);
     setErrorMsg('');
 
@@ -25,6 +36,7 @@ export default function CryptoPayoutModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: amount,
+          userId: userId,
           payoutMethod: 'USDT_TRC20',
           timestamp: Date.now()
         }),
@@ -32,14 +44,14 @@ export default function CryptoPayoutModal({
 
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to process crypto payout request');
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || 'Failed to process crypto payout request');
       }
 
       setSuccess(true);
     } catch (err: any) {
       console.error('Payout error:', err);
-      setErrorMsg(err.message || 'Payout request failed. Please check your wallet address.');
+      setErrorMsg(err.message || 'Payout request failed. Please check your available balance and wallet.');
     } finally {
       setLoading(false);
     }

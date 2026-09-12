@@ -1,3 +1,10 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+
+const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
+
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -8,10 +15,30 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { amount, payoutMethod, walletAddress, network } = req.body || {};
+    const { amount, userId, payoutMethod, walletAddress, network } = req.body || {};
 
-    if (!amount || Number(amount) <= 0) {
-      return res.status(400).json({ error: 'Invalid disbursement amount.' });
+    const reqAmount = Number(amount) || 0;
+    if (reqAmount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid disbursement amount. Must be greater than $0.00.' });
+    }
+
+    // Server-side database validation: check actual settled balance in Supabase
+    if (userId && supabase) {
+      const { data: profile, error: dbError } = await supabase
+        .from('profiles')
+        .select('settled_balance, earnings')
+        .eq('id', userId)
+        .single();
+
+      if (!dbError && profile) {
+        const availableBalance = Number(profile.settled_balance ?? profile.earnings ?? 0);
+        if (reqAmount > availableBalance || availableBalance <= 0) {
+          return res.status(400).json({
+            success: false,
+            error: `Payout rejected: Requested amount ($${reqAmount.toFixed(2)}) exceeds available settled balance ($${availableBalance.toFixed(2)}).`
+          });
+        }
+      }
     }
 
     const apiKey = process.env.NOWPAYMENTS_API_KEY || '';
@@ -28,7 +55,7 @@ export default async function handler(req: any, res: any) {
           withdrawals: [
             {
               address: walletAddress,
-              amount: Number(amount),
+              amount: reqAmount,
               currency: targetNetwork === 'TRC20' ? 'usdttrc20' : 'usdt'
             }
           ]
@@ -38,14 +65,14 @@ export default async function handler(req: any, res: any) {
       const data = await response.json();
 
       if (!response.ok) {
-        return res.status(400).json({ error: data.message || 'Payout network error from payment gateway.' });
+        return res.status(400).json({ success: false, error: data.message || 'Payout network error from payment gateway.' });
       }
 
       return res.status(200).json({
         success: true,
         message: 'Payout request processed successfully',
         payoutId: data.id,
-        amount,
+        amount: reqAmount,
         payoutMethod: payoutMethod || 'USDT_TRC20',
         timestamp: Date.now(),
       });
@@ -55,12 +82,12 @@ export default async function handler(req: any, res: any) {
       success: true,
       message: 'Payout request processed successfully',
       payoutId: `payout_sim_${Date.now()}`,
-      amount,
+      amount: reqAmount,
       payoutMethod: payoutMethod || 'USDT_TRC20',
       timestamp: Date.now(),
     });
   } catch (err: any) {
     console.error('Payout API Error:', err);
-    return res.status(500).json({ error: err.message || 'Internal server error during payout request.' });
+    return res.status(500).json({ success: false, error: err.message || 'Internal server error during payout request.' });
   }
 }

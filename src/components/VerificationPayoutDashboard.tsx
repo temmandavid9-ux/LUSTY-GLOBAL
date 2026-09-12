@@ -921,6 +921,7 @@ export default function VerificationPayoutDashboard({
                 currentUserId={userProfile?.id || ''}
                 pendingBalance={pendingLedgerBalance}
                 escrowBalance={escrowBalance}
+                settledBalance={settledLedgerBalance}
                 payoutConfigured={Boolean(
                   profile?.payout_configured ||
                   profile?.has_payment_method ||

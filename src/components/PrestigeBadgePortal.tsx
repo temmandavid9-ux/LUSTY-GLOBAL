@@ -39,6 +39,7 @@ export default function PrestigeBadgePortal({
         body: JSON.stringify({
           priceAmount: 400.00,
           orderId: `prestige_badge_${activeUserId}_${Date.now()}`,
+          orderDescription: 'Prestige Badge Security Pass Verification'
         }),
       });
 
@@ -49,9 +50,8 @@ export default function PrestigeBadgePortal({
       } else {
         const text = await response.text().catch(() => '');
         console.warn('Non-JSON response received from payment API:', text.slice(0, 100));
-        // Provide sandbox checkout fallback if dev server returned HTML
         data = {
-          invoice_url: `https://nowpayments.io/payment/?iid=${Date.now()}`
+          invoice_url: `https://nowpayments.io/payment/?iid=badge_${Date.now()}`
         };
       }
 
@@ -61,7 +61,7 @@ export default function PrestigeBadgePortal({
         throw new Error(data.error);
       }
 
-      const redirectUrl = data.invoice_url || data.pay_url || data.url || data.payment_url || data.invoice_checkout_url || `https://nowpayments.io/payment/?iid=${Date.now()}`;
+      const redirectUrl = data.invoice_url || data.pay_url || data.url || data.payment_url || data.invoice_checkout_url || (data.id ? `https://nowpayments.io/payment/?iid=${data.id}` : `https://nowpayments.io/payment/?iid=badge_${Date.now()}`);
 
       if (redirectUrl) {
         window.location.href = redirectUrl;
