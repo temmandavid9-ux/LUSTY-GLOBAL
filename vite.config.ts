@@ -226,13 +226,23 @@ function cryptoPayoutApiPlugin(): Plugin {
             const body = JSON.parse(bodyStr || '{}');
             const { amount, payoutMethod } = body;
 
+            if (!amount || Number(amount) <= 0) {
+              res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: 'Invalid disbursement amount.' }));
+              return;
+            }
+
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.statusCode = 200;
             res.end(JSON.stringify({
               success: true,
-              message: `Payout request of $${Number(amount || 0).toFixed(2)} USD via ${payoutMethod || 'USDT_TRC20'} submitted successfully!`,
-              txId: `payout_tx_${Date.now()}`
+              message: 'Payout request processed successfully',
+              amount,
+              payoutMethod,
+              timestamp: Date.now(),
             }));
           } catch (err: any) {
             console.error('Crypto Payout Route Error:', err);
