@@ -22,6 +22,8 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ success: false, message: 'Invalid payout amount.' });
     }
 
+    let availableBalance = 0.00;
+
     if (userId && supabase) {
       const { data: profile } = await supabase
         .from('profiles')
@@ -30,14 +32,15 @@ export default async function handler(req: any, res: any) {
         .single();
 
       if (profile) {
-        const availableBalance = Number(profile.settled_balance ?? profile.earnings ?? 0);
-        if (reqAmount > availableBalance || availableBalance <= 0) {
-          return res.status(400).json({
-            success: false,
-            message: `Requested amount ($${reqAmount.toFixed(2)}) exceeds available settled balance ($${availableBalance.toFixed(2)}).`
-          });
-        }
+        availableBalance = Number(profile.settled_balance ?? profile.earnings ?? 0);
       }
+    }
+
+    if (reqAmount > availableBalance || availableBalance <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Payout rejected: Requested amount ($${reqAmount.toFixed(2)}) exceeds available settled balance ($${availableBalance.toFixed(2)}).`
+      });
     }
 
     const apiKey = process.env.NOWPAYMENTS_API_KEY || '';

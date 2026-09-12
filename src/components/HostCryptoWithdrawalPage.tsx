@@ -6,7 +6,7 @@ interface CryptoWithdrawalProps {
   onWithdraw?: (details: { walletAddress: string; network: string; amount: number }) => Promise<void>;
 }
 
-export function HostCryptoWithdrawalPage({ availableBalance = 425.00, onWithdraw }: CryptoWithdrawalProps) {
+export function HostCryptoWithdrawalPage({ availableBalance = 0.00, onWithdraw }: CryptoWithdrawalProps) {
   const [walletAddress, setWalletAddress] = useState('');
   const [network, setNetwork] = useState('TRC20');
   const [amount, setAmount] = useState(availableBalance.toString());

@@ -22,23 +22,27 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ success: false, error: 'Invalid disbursement amount. Must be greater than $0.00.' });
     }
 
+    let availableBalance = 0.00;
+
     // Server-side database validation: check actual settled balance in Supabase
     if (userId && supabase) {
-      const { data: profile, error: dbError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('settled_balance, earnings')
         .eq('id', userId)
         .single();
 
-      if (!dbError && profile) {
-        const availableBalance = Number(profile.settled_balance ?? profile.earnings ?? 0);
-        if (reqAmount > availableBalance || availableBalance <= 0) {
-          return res.status(400).json({
-            success: false,
-            error: `Payout rejected: Requested amount ($${reqAmount.toFixed(2)}) exceeds available settled balance ($${availableBalance.toFixed(2)}).`
-          });
-        }
+      if (profile) {
+        availableBalance = Number(profile.settled_balance ?? profile.earnings ?? 0);
       }
+    }
+
+    // Strict validation: Reject if requested amount exceeds available settled balance or if balance is $0.00
+    if (reqAmount > availableBalance || availableBalance <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Payout rejected: Requested amount ($${reqAmount.toFixed(2)}) exceeds available settled balance ($${availableBalance.toFixed(2)}).`
+      });
     }
 
     const apiKey = process.env.NOWPAYMENTS_API_KEY || '';
