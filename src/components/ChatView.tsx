@@ -549,11 +549,12 @@ export default function ChatView({
           return hasInteracted || isActiveSelection;
         });
         setChannels(mappedCompanions);
-        if (activeCompanionId) {
-          setSelectedId(activeCompanionId);
-        } else if (window.innerWidth >= 768 && mappedCompanions.length > 0) {
-          setSelectedId(mappedCompanions[0].id);
-        }
+        setSelectedId((prev) => {
+          if (prev) return prev;
+          if (activeCompanionId) return activeCompanionId;
+          if (window.innerWidth >= 768 && mappedCompanions.length > 0) return mappedCompanions[0].id;
+          return prev;
+        });
       }
     } catch (err) {
       console.warn("Using offline companion directory listing:", err);
@@ -567,11 +568,12 @@ export default function ChatView({
         return hasInteracted || isActiveSelection;
       });
       setChannels(mappedCompanions);
-      if (activeCompanionId) {
-        setSelectedId(activeCompanionId);
-      } else if (window.innerWidth >= 768 && mappedCompanions.length > 0) {
-        setSelectedId(mappedCompanions[0].id);
-      }
+      setSelectedId((prev) => {
+        if (prev) return prev;
+        if (activeCompanionId) return activeCompanionId;
+        if (window.innerWidth >= 768 && mappedCompanions.length > 0) return mappedCompanions[0].id;
+        return prev;
+      });
     }
   }, [currentUserId, activeCompanionId, userCoords.lat, userCoords.lon]);
 
@@ -960,8 +962,10 @@ export default function ChatView({
           (mapped.senderId === currentUserId && mapped.receiverId === selectedId)
         ) {
           setMessages((prev) => {
-            // Check for duplicate keys
             if (prev.some(m => m.id === mapped.id)) return prev;
+            if (prev.some(m => m.status === 'sending' && m.text === mapped.text)) {
+              return prev.map(m => (m.status === 'sending' && m.text === mapped.text) ? mapped : m);
+            }
             return [...prev, mapped];
           });
           
@@ -1005,7 +1009,7 @@ export default function ChatView({
     return {
       id: dbMsg.id || `msg_${Date.now()}_${Math.random()}`,
       senderId: dbMsg.sender_id || dbMsg.senderId || 'user',
-      receiverId: dbMsg.recipient_id || dbMsg.receiverId || 'recipient',
+      receiverId: dbMsg.receiver_id || dbMsg.recipient_id || dbMsg.receiverId || 'recipient',
       text: parsedText,
       time: dbMsg.created_at 
         ? new Date(dbMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
