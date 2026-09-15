@@ -21,6 +21,7 @@ import { useRealtimeWallet } from './hooks/useRealtimeWallet';
 import { UnifiedAlertListener } from './components/UnifiedAlertListener';
 import { InstallPWABanner, triggerPWAInstall, usePWAInstallStatus } from './components/InstallPWABanner';
 import { PlatformRatingModal } from './components/PlatformRatingModal';
+import { PaymentVerificationHandler } from './components/PaymentVerificationHandler';
 import { COMPANIONS } from './data';
 import { Companion, Booking } from './types';
 import { supabase } from './lib/supabase';
@@ -1767,6 +1768,15 @@ export default function App() {
   return (
     <div className="w-full h-[100dvh] bg-[#09090b] text-zinc-100 flex flex-col items-center relative select-none font-sans overflow-hidden">
       
+      {/* 🛡️ 1. Automatic Payment Verification & Service Delivery Handler */}
+      <PaymentVerificationHandler 
+        currentUserId={userProfile?.id}
+        onRefreshProfile={() => {
+          restoreSession();
+          window.dispatchEvent(new CustomEvent("profile-updated"));
+        }}
+      />
+
       {/* 🛡️ 1. The subtle ambient background watermark */}
       <WatermarkBackground />
       

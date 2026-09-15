@@ -5,6 +5,15 @@ export async function POST(request: Request) {
     const { priceAmount, orderId, orderDescription } = await request.json().catch(() => ({}));
     const apiKey = process.env.NOWPAYMENTS_API_KEY || '';
 
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'lusty-global.vercel.app';
+    const protocol = request.headers.get('x-forwarded-proto') || 'https';
+    const baseUrl = `${protocol}://${host}`;
+
+    const activeOrderId = orderId || `ord_${Date.now()}`;
+    const ipnCallbackUrl = `${baseUrl}/api/webhook`;
+    const successUrl = `${baseUrl}/?payment_status=success&order_id=${encodeURIComponent(activeOrderId)}`;
+    const cancelUrl = `${baseUrl}/?payment_status=cancelled&order_id=${encodeURIComponent(activeOrderId)}`;
+
     let minAmountUsd = 15;
     if (apiKey) {
       try {
@@ -39,11 +48,11 @@ export async function POST(request: Request) {
           price_amount: finalAmount,
           price_currency: 'usd',
           pay_currency: 'usdttrc20',
-          order_id: orderId || `ord_${Date.now()}`,
+          order_id: activeOrderId,
           order_description: orderDescription || 'Lusty Global VIP Payment',
-          ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
-          success_url: 'https://lusty-global.vercel.app/host-portal?payment=success',
-          cancel_url: 'https://lusty-global.vercel.app/host-portal?payment=cancelled'
+          ipn_callback_url: ipnCallbackUrl,
+          success_url: successUrl,
+          cancel_url: cancelUrl
         }),
       });
 
@@ -55,6 +64,7 @@ export async function POST(request: Request) {
           success: true,
           invoice_url: checkoutUrl,
           pay_url: checkoutUrl,
+          order_id: activeOrderId,
           ...invoiceData
         });
       }
@@ -70,8 +80,8 @@ export async function POST(request: Request) {
           price_amount: finalAmount,
           price_currency: 'usd',
           pay_currency: 'usdttrc20',
-          order_id: orderId || `ord_${Date.now()}`,
-          ipn_callback_url: 'https://lusty-global.vercel.app/api/webhook',
+          order_id: activeOrderId,
+          ipn_callback_url: ipnCallbackUrl,
         }),
       });
 
@@ -83,18 +93,19 @@ export async function POST(request: Request) {
           success: true,
           invoice_url: checkoutUrl,
           pay_url: checkoutUrl,
+          order_id: activeOrderId,
           ...paymentData
         });
       }
     }
 
     // Default Sandbox / Fallback Hosted Checkout Invoice URL
-    const fallbackCheckoutUrl = `https://nowpayments.io/payment/?iid=badge_${Date.now()}`;
+    const fallbackCheckoutUrl = `${successUrl}`;
     return NextResponse.json({
       success: true,
       invoice_url: fallbackCheckoutUrl,
       pay_url: fallbackCheckoutUrl,
-      order_id: orderId || `badge_${Date.now()}`,
+      order_id: activeOrderId,
       price_amount: finalAmount,
       price_currency: 'usd',
       pay_currency: 'usdttrc20'

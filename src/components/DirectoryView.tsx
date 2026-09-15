@@ -482,8 +482,8 @@ export default function DirectoryView({
       });
     };
 
-    let sortedVerified = sortByLoginOrCreated(verified);
-    let sortedUnverified = sortByLoginOrCreated(unverified);
+    let sortedVerified = shuffleArray(verified);
+    let sortedUnverified = shuffleArray(unverified);
 
     if (sortBy === 'newest') {
       sortedVerified = sortByLoginOrCreated(sortedVerified);

@@ -40,6 +40,7 @@ interface ShortVideoPlayerProps {
   isMuted?: boolean;
   onMuteToggle?: () => void;
   isNext?: boolean; // Preload option for next video in line
+  isAdjacent?: boolean; // Preload option for adjacent items above & below
   onProgress?: (percent: number) => void;
 }
 
@@ -71,6 +72,7 @@ function LoungeShortsPlayerComponent({
   isMuted: isMutedProp,
   onMuteToggle,
   isNext = false,
+  isAdjacent = false,
   onProgress
 }: ShortVideoPlayerProps) {
   const { triggerMonetagEarning } = useMonetagRevenue(3);
@@ -1682,12 +1684,12 @@ function LoungeShortsPlayerComponent({
         )
       )}
 
-      {/* 📹 Live Video Asset Player - Preloaded when next in feed to optimize buffer states */}
-      {(isActive || isNext) && (
+      {/* 📹 Live Video Asset Player - Preloaded when active or adjacent in feed to optimize buffer states */}
+      {(isActive || isNext || isAdjacent) && (
         <video 
           ref={videoRef}
-          src={isActive || isNext || isIntersecting ? safeShortVideoUrl : undefined}
-          preload="auto"
+          src={isActive || isNext || isAdjacent || isIntersecting ? safeShortVideoUrl : undefined}
+          preload={isActive ? "auto" : "metadata"}
           loop 
           muted={!isActive || isMuted} 
           playsInline

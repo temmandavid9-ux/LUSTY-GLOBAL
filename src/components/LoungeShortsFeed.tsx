@@ -6,6 +6,7 @@ import { Play, Eye, Heart, Sparkles, ArrowLeft, MoveDown, MapPin, Search, Chevro
 import { VIDEOS, COMPANIONS } from '../data';
 import { formatMetricCount } from '../utils/formatMetrics';
 import { getSafeVideoUrl } from '../utils/videoUtils';
+import { sortVerifiedFirstShuffled } from '../utils/feedSorting';
 
 // 🧠 THE INTERLEAVE MIX ENGINE: Group by Host to alternate creators sequentially
 function interleaveVideos(videos: any[]): any[] {
@@ -266,9 +267,9 @@ export function LoungeShortsFeed({
             );
             return hasVideoUrl && isNotTest;
           });
-          // 🎲 SHUFFLE ALGORITHM: Randomize the array order to keep the feed unexpected and fresh on every load
-          const randomizedMapped = [...mapped].sort(() => Math.random() - 0.5);
-          const mixed = interleaveVideos(randomizedMapped);
+          // 🎲 DYNAMIC VERIFIED-FIRST SHUFFLE: Verified creators stay at top (shuffled), followed by standard creators (shuffled)
+          const sortedVerifiedFirst = sortVerifiedFirstShuffled(mapped);
+          const mixed = interleaveVideos(sortedVerifiedFirst);
 
           // 🚀 Prioritize active boosted clips at the top of the feed matrix
           let finalMixed = mixed;
@@ -364,9 +365,9 @@ export function LoungeShortsFeed({
               );
               return hasVideoUrl && isNotTest;
             });
-            // 🎲 SHUFFLE ALGORITHM: Randomize the array order to keep the feed unexpected and fresh on every load
-            const randomizedMapped = [...mapped].sort(() => Math.random() - 0.5);
-            const mixed = interleaveVideos(randomizedMapped);
+            // 🎲 DYNAMIC VERIFIED-FIRST SHUFFLE: Verified creators stay at top (shuffled), followed by standard creators (shuffled)
+            const sortedVerifiedFirst = sortVerifiedFirstShuffled(mapped);
+            const mixed = interleaveVideos(sortedVerifiedFirst);
 
             // 🚀 Prioritize active boosted clips at the top of the feed matrix
             let finalMixed = mixed;
@@ -962,23 +963,30 @@ export function LoungeShortsFeed({
                 >
                   {filteredPosts.map((post, index) => {
                     const activeIndex = filteredPosts.findIndex(p => p.id === activeVideoId);
-                    // Flag next TWO videos in the queue for background prefetching
-                    const isNextItemInList = index === activeIndex + 1 || index === activeIndex + 2;
+                    const isActive = index === activeIndex && viewMode === 'player';
+                    // Determine if video is active or adjacent (above/below or next in queue for instant buffer)
+                    const distFromActive = Math.abs(index - activeIndex);
+                    const isAdjacent = distFromActive <= 1;
                     const isPreloadedByProgress = preloadedVideoIds && !!preloadedVideoIds[post.id];
-                    const isNext = (isNextItemInList || isPreloadedByProgress) && viewMode === 'player';
+                    const isNext = (isAdjacent || index === activeIndex + 2 || isPreloadedByProgress) && viewMode === 'player';
                     const nextPost = activeIndex !== -1 ? filteredPosts[activeIndex + 1] : null;
                     const nextVideoId = nextPost ? nextPost.id : null;
+
                     return (
-                      <div key={post.id} className="w-full h-full snap-start relative bg-black flex flex-col justify-end">
-                        {/* 🚀 Preload link tag for the NEXT video in line for instant swipe buffering */}
-                        {isNext && post.video_url && (
-                          <link rel="preload" as="video" href={post.video_url} />
+                      <div 
+                        key={post.id} 
+                        className="w-full h-full max-w-md mx-auto aspect-[9/16] snap-start relative bg-zinc-950 flex flex-col justify-end overflow-hidden"
+                      >
+                        {/* 🚀 Preload link tag for adjacent videos in line for instant swipe buffering */}
+                        {(isNext || isAdjacent) && post.video_url && (
+                          <link rel="preload" as="video" href={getSafeVideoUrl(post.video_url)} />
                         )}
                         <LoungeShortsPlayer 
                           short={post} 
                           currentUserId={currentUserId || 'anonymous_lounge_guest'} 
-                          isActive={post.id === activeVideoId && viewMode === 'player'}
-                          isNext={isNext && viewMode === 'player'}
+                          isActive={isActive}
+                          isNext={isNext}
+                          isAdjacent={isAdjacent}
                           isMuted={isFeedMuted}
                           onMuteToggle={handleMuteToggle}
                           onProgress={(percent) => {
