@@ -8,25 +8,32 @@ import { formatMetricCount } from '../utils/formatMetrics';
 import { getSafeVideoUrl } from '../utils/videoUtils';
 import { shuffleArray } from '../utils/feedSorting';
 
-// 🧠 THE INTERLEAVE MIX ENGINE: Group by Host to alternate creators sequentially with RANDOM SHUFFLING
+// 🧠 THE INTERLEAVE MIX ENGINE: Group by Host/Creator to alternate creators sequentially with RANDOM SHUFFLING
 function interleaveVideos(videos: any[]): any[] {
   if (!videos || videos.length === 0) return [];
   
   const groups: { [key: string]: any[] } = {};
   videos.forEach(video => {
-    const hostKey = video.host_id || video.user_id || 'unknown_host';
+    // Robust creator grouping key
+    const hostKey = 
+      video.stableUsername || 
+      video.profiles?.username || 
+      video.host_id || 
+      video.user_id || 
+      (video.caption ? video.caption.substring(0, 20) : 'unknown_host');
+
     if (!groups[hostKey]) {
       groups[hostKey] = [];
     }
     groups[hostKey].push(video);
   });
 
-  // Shuffle each host's videos independently so their loop sequence varies
+  // Shuffle each creator's videos independently so their loop sequence varies
   for (const hostId in groups) {
     groups[hostId] = shuffleArray(groups[hostId]);
   }
 
-  // Shuffle the host keys so creators alternate in a randomized order on every load
+  // Shuffle the creator keys so a different creator leads at the top on every load
   const hostKeys = shuffleArray(Object.keys(groups));
 
   const mixedFeed: any[] = [];
@@ -133,7 +140,7 @@ export function LoungeShortsFeed({
   const handleReshuffleFeed = useCallback(() => {
     setPosts(prevPosts => {
       if (!prevPosts || prevPosts.length === 0) return prevPosts;
-      const reshuffled = shuffleArray(interleaveVideos(prevPosts));
+      const reshuffled = interleaveVideos(prevPosts);
       if (reshuffled.length > 0) {
         setActiveVideoId(reshuffled[0].id);
       }
@@ -172,7 +179,7 @@ export function LoungeShortsFeed({
             }
           };
         });
-        return shuffleArray(interleaveVideos(fallback));
+        return interleaveVideos(fallback);
       };
 
       try {
@@ -266,9 +273,8 @@ export function LoungeShortsFeed({
             );
             return hasVideoUrl && isNotTest;
           });
-          // 🎲 DYNAMIC FULL RANDOM SHUFFLE: Fully shuffle all videos so top videos move randomly on every page load
-          const mixed = interleaveVideos(mapped);
-          const finalMixed = shuffleArray(mixed);
+          // 🎲 DYNAMIC INTERLEAVED RANDOM SHUFFLE: Interleave creators randomly on every page load
+          const finalMixed = interleaveVideos(mapped);
 
           if (finalMixed.length === 0) {
             console.warn("⚠️ Database query returned zero filtered lounge shorts. Loading static fallback assets...");
@@ -356,9 +362,8 @@ export function LoungeShortsFeed({
               );
               return hasVideoUrl && isNotTest;
             });
-            // 🎲 DYNAMIC FULL RANDOM SHUFFLE: Fully shuffle all videos so top videos move randomly on every page load
-            const mixed = interleaveVideos(mapped);
-            const finalMixed = shuffleArray(mixed);
+            // 🎲 DYNAMIC INTERLEAVED RANDOM SHUFFLE: Interleave creators randomly on every page load
+            const finalMixed = interleaveVideos(mapped);
 
             if (finalMixed.length === 0) {
               console.warn("⚠️ Fallback database query returned zero filtered lounge shorts. Loading static fallback assets...");
@@ -391,7 +396,7 @@ export function LoungeShortsFeed({
         if (offlineBackup) {
           try {
             const parsed: any[] = JSON.parse(offlineBackup);
-            const reshuffled = shuffleArray(parsed);
+            const reshuffled = interleaveVideos(parsed);
             setPosts(reshuffled);
             if (reshuffled.length > 0) {
               setActiveVideoId(reshuffled[0].id);
