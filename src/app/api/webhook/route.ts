@@ -10,7 +10,7 @@ export async function POST(request: Request) {
 
     console.log(`[NOWPAYMENTS NEXT ROUTE WEBHOOK] Order: ${orderId}, Status: ${paymentStatus}`);
 
-    const result = await fulfillService(orderId, paymentId, paymentStatus);
+    const result = await fulfillService(orderId, paymentId, paymentStatus, payload);
 
     return NextResponse.json({
       received: true,

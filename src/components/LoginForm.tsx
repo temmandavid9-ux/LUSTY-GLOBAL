@@ -66,6 +66,7 @@ export default function LoginForm({ onLoginSuccess, onClose }: LoginFormProps) {
 
         // Clean username for profile row
         const computedUsername = name.trim().toLowerCase().replace(/\s+/g, '') || userEmail.split('@')[0];
+        const referredByHost = localStorage.getItem('referred_by_host') || null;
 
         // Create permanent profiles row mapping
         const { error: profileError } = await supabase
@@ -77,7 +78,9 @@ export default function LoginForm({ onLoginSuccess, onClose }: LoginFormProps) {
               email: userEmail,
               current_balance: 1450.00,
               is_verified: false,
-              bio: 'Verified VIP guest. Rates available on demand 🔒'
+              bio: 'Verified VIP guest. Rates available on demand 🔒',
+              referred_by: referredByHost,
+              referral_bonus_paid: false
             }
           ]);
 
@@ -86,7 +89,6 @@ export default function LoginForm({ onLoginSuccess, onClose }: LoginFormProps) {
         }
 
         // 3️⃣ 🎯 THE REFERRAL LOOP: Check if they came from a Host's promo link
-        const referredByHost = localStorage.getItem('referred_by_host');
         if (referredByHost) {
           try {
             // Find that host's exact ID using their username
