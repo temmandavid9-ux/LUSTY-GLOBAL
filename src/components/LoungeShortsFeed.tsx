@@ -116,6 +116,7 @@ export function LoungeShortsFeed({
   const [selectedCity, setSelectedCity] = useState<string>('All');
   const [citySearchTerm, setCitySearchTerm] = useState<string>('');
   const [showLocationDropdown, setShowLocationDropdown] = useState<boolean>(false);
+  const [creatorSearchQuery, setCreatorSearchQuery] = useState<string>('');
 
   const handleMuteToggle = useCallback(() => {
     setIsFeedMuted(prev => !prev);
@@ -567,9 +568,18 @@ export function LoungeShortsFeed({
     return counts;
   }, [posts, availableCities]);
 
-  // Filter posts by active tab and selected city
+  // Filter posts by active tab, selected city, and search query
   const filteredPosts = useMemo(() => {
     return posts.filter(post => {
+      if (creatorSearchQuery && creatorSearchQuery.trim().length > 0) {
+        const query = creatorSearchQuery.trim().toLowerCase();
+        const username = (post.stableUsername || post.profiles?.username || '').toLowerCase();
+        const caption = (post.caption || '').toLowerCase();
+        const title = (post.profiles?.title || '').toLowerCase();
+        const location = (post.location || post.city || '').toLowerCase();
+        const matches = username.includes(query) || caption.includes(query) || title.includes(query) || location.includes(query);
+        if (!matches) return false;
+      }
       if (feedFilter === 'boosted') {
         if (!post.is_boosted && !post.has_active_boost && !post.boost_active) return false;
       }
@@ -582,7 +592,7 @@ export function LoungeShortsFeed({
       }
       return true;
     });
-  }, [posts, feedFilter, selectedCity]);
+  }, [posts, feedFilter, selectedCity, creatorSearchQuery]);
 
   if (loading) {
     return (
@@ -672,17 +682,40 @@ export function LoungeShortsFeed({
                     </button>
                   </div>
 
-                  {/* Location Search / Pinned Cities Dropdown Toggle */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setShowLocationDropdown(!showLocationDropdown)}
-                      className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-pink-500/50 text-xs px-3 py-1.5 rounded-xl text-zinc-200 flex items-center gap-2 transition cursor-pointer font-medium select-none"
-                    >
-                      <MapPin className="w-3.5 h-3.5 text-pink-500" />
-                      <span>{selectedCity === 'All' ? 'Filter Pinned City' : `📍 ${selectedCity}`}</span>
-                      <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
-                    </button>
+                  {/* 🔍 Search Bar & Location Pinned Cities Dropdown */}
+                  <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                    {/* Search Bar matching dark UI theme */}
+                    <div className="relative flex items-center">
+                      <Search className="absolute left-3 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={creatorSearchQuery}
+                        onChange={(e) => setCreatorSearchQuery(e.target.value)}
+                        placeholder="Search creators..."
+                        className="bg-[#121214] border border-zinc-800 text-zinc-200 text-xs rounded-xl pl-9 pr-7 py-1.5 focus:outline-none focus:border-pink-500 transition-colors w-36 sm:w-52 placeholder:text-zinc-500"
+                      />
+                      {creatorSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setCreatorSearchQuery('')}
+                          className="absolute right-2 text-zinc-500 hover:text-white"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Location Search / Pinned Cities Dropdown Toggle */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowLocationDropdown(!showLocationDropdown)}
+                        className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-pink-500/50 text-xs px-3 py-1.5 rounded-xl text-zinc-200 flex items-center gap-2 transition cursor-pointer font-medium select-none"
+                      >
+                        <MapPin className="w-3.5 h-3.5 text-pink-500" />
+                        <span>{selectedCity === 'All' ? 'Filter Pinned City' : `📍 ${selectedCity}`}</span>
+                        <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+                      </button>
 
                     {/* Dropdown Menu & Location Search Input */}
                     {showLocationDropdown && (
@@ -754,6 +787,7 @@ export function LoungeShortsFeed({
                       </div>
                     )}
                   </div>
+                </div>
                 </div>
 
                 {/* Active Filter Indicator Tag */}

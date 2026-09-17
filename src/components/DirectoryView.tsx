@@ -271,7 +271,14 @@ export default function DirectoryView({
         // Select all profiles ordered by is_verified desc (verified profiles first) and last_seen desc
         let query = supabase
           .from('profiles')
-          .select('*')
+          .select('*');
+
+        if (searchTerm && searchTerm.trim().length > 0) {
+          const queryTerm = searchTerm.trim();
+          query = query.or(`username.ilike.%${queryTerm}%,name.ilike.%${queryTerm}%,location.ilike.%${queryTerm}%`);
+        }
+
+        query = query
           .order('is_verified', { ascending: false })
           .order('last_seen', { ascending: false });
 
@@ -337,7 +344,7 @@ export default function DirectoryView({
     return () => {
       supabase.removeChannel(profileSubscription);
     };
-  }, [currentUser?.id, currentUser?.username]); // Runs when currentUser changes
+  }, [currentUser?.id, currentUser?.username, searchTerm]); // Runs when currentUser or searchTerm changes
 
   // Dynamically map loaded profiles to Companions utilizing current coordinates
   const companions = useMemo<Companion[]>(() => {
