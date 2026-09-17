@@ -2,24 +2,32 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { LoungeShortsPlayer } from './LoungeShortsPlayer';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Eye, Heart, Sparkles, ArrowLeft, MoveDown, MapPin, Search, ChevronDown, Globe, X } from 'lucide-react';
+import { Play, Eye, Heart, Sparkles, ArrowLeft, MoveDown, MapPin, Search, ChevronDown, Globe, X, Shuffle } from 'lucide-react';
 import { VIDEOS, COMPANIONS } from '../data';
 import { formatMetricCount } from '../utils/formatMetrics';
 import { getSafeVideoUrl } from '../utils/videoUtils';
-import { sortVerifiedFirstShuffled } from '../utils/feedSorting';
+import { sortVerifiedFirstShuffled, shuffleArray } from '../utils/feedSorting';
 
-// 🧠 THE INTERLEAVE MIX ENGINE: Group by Host to alternate creators sequentially
+// 🧠 THE INTERLEAVE MIX ENGINE: Group by Host to alternate creators sequentially with RANDOM SHUFFLING
 function interleaveVideos(videos: any[]): any[] {
   if (!videos || videos.length === 0) return [];
   
   const groups: { [key: string]: any[] } = {};
   videos.forEach(video => {
-    const hostKey = video.host_id || 'unknown_host';
+    const hostKey = video.host_id || video.user_id || 'unknown_host';
     if (!groups[hostKey]) {
       groups[hostKey] = [];
     }
     groups[hostKey].push(video);
   });
+
+  // Shuffle each host's videos independently so their loop sequence varies
+  for (const hostId in groups) {
+    groups[hostId] = shuffleArray(groups[hostId]);
+  }
+
+  // Shuffle the host keys so creators alternate in a randomized order on every load
+  const hostKeys = shuffleArray(Object.keys(groups));
 
   const mixedFeed: any[] = [];
   let hasMore = true;
@@ -27,8 +35,8 @@ function interleaveVideos(videos: any[]): any[] {
 
   while (hasMore) {
     hasMore = false;
-    for (const hostId in groups) {
-      if (groups[hostId][pass]) {
+    for (const hostId of hostKeys) {
+      if (groups[hostId] && groups[hostId][pass]) {
         mixedFeed.push(groups[hostId][pass]);
         hasMore = true;
       }
@@ -122,11 +130,22 @@ export function LoungeShortsFeed({
     setIsFeedMuted(prev => !prev);
   }, []);
 
+  const handleReshuffleFeed = useCallback(() => {
+    setPosts(prevPosts => {
+      if (!prevPosts || prevPosts.length === 0) return prevPosts;
+      const reshuffled = interleaveVideos(sortVerifiedFirstShuffled(prevPosts));
+      if (reshuffled.length > 0) {
+        setActiveVideoId(reshuffled[0].id);
+      }
+      return reshuffled;
+    });
+  }, []);
+
   useEffect(() => {
     const fetchAllFeedData = async () => {
       // Helper function to dynamically construct high-quality, highly compatible local fallback assets
       const getStaticFallbackFeed = () => {
-        return VIDEOS.map((video: any) => {
+        const fallback = VIDEOS.map((video: any) => {
           const companion = COMPANIONS.find(c => c.id === video.creatorId) || COMPANIONS[0];
           return {
             id: video.id,
@@ -153,6 +172,7 @@ export function LoungeShortsFeed({
             }
           };
         });
+        return interleaveVideos(sortVerifiedFirstShuffled(fallback));
       };
 
       try {
@@ -272,13 +292,13 @@ export function LoungeShortsFeed({
           const sortedVerifiedFirst = sortVerifiedFirstShuffled(mapped);
           const mixed = interleaveVideos(sortedVerifiedFirst);
 
-          // 🚀 Prioritize active boosted clips at the top of the feed matrix
+          // 🚀 Prioritize active boosted clips at the top of the feed matrix with random shuffling
           let finalMixed = mixed;
           if (boostedShortIds.length > 0) {
             const boostedSet = new Set(boostedShortIds);
             const boostedVideos = mixed.filter(p => boostedSet.has(p.id));
             const regularVideos = mixed.filter(p => !boostedSet.has(p.id));
-            finalMixed = [...boostedVideos, ...regularVideos];
+            finalMixed = [...shuffleArray(boostedVideos), ...regularVideos];
           }
 
           if (finalMixed.length === 0) {
@@ -376,7 +396,7 @@ export function LoungeShortsFeed({
               const boostedSet = new Set(boostedShortIds);
               const boostedVideos = mixed.filter(p => boostedSet.has(p.id));
               const regularVideos = mixed.filter(p => !boostedSet.has(p.id));
-              finalMixed = [...boostedVideos, ...regularVideos];
+              finalMixed = [...shuffleArray(boostedVideos), ...regularVideos];
             }
 
             if (finalMixed.length === 0) {
@@ -679,6 +699,16 @@ export function LoungeShortsFeed({
                     >
                       <Sparkles className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
                       <span>VIP Boosted</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleReshuffleFeed}
+                      title="Shuffle video loop order randomly"
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-pink-400 hover:bg-zinc-800/80 transition flex items-center gap-1.5 cursor-pointer select-none"
+                    >
+                      <Shuffle className="w-3.5 h-3.5 text-pink-400" />
+                      <span className="hidden sm:inline">Reshuffle</span>
                     </button>
                   </div>
 
