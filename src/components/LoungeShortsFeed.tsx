@@ -6,7 +6,7 @@ import { Play, Eye, Heart, Sparkles, ArrowLeft, MoveDown, MapPin, Search, Chevro
 import { VIDEOS, COMPANIONS } from '../data';
 import { formatMetricCount } from '../utils/formatMetrics';
 import { getSafeVideoUrl } from '../utils/videoUtils';
-import { sortVerifiedFirstShuffled, shuffleArray } from '../utils/feedSorting';
+import { shuffleArray } from '../utils/feedSorting';
 
 // 🧠 THE INTERLEAVE MIX ENGINE: Group by Host to alternate creators sequentially with RANDOM SHUFFLING
 function interleaveVideos(videos: any[]): any[] {
@@ -133,7 +133,7 @@ export function LoungeShortsFeed({
   const handleReshuffleFeed = useCallback(() => {
     setPosts(prevPosts => {
       if (!prevPosts || prevPosts.length === 0) return prevPosts;
-      const reshuffled = interleaveVideos(sortVerifiedFirstShuffled(prevPosts));
+      const reshuffled = shuffleArray(interleaveVideos(prevPosts));
       if (reshuffled.length > 0) {
         setActiveVideoId(reshuffled[0].id);
       }
@@ -172,34 +172,12 @@ export function LoungeShortsFeed({
             }
           };
         });
-        return interleaveVideos(sortVerifiedFirstShuffled(fallback));
+        return shuffleArray(interleaveVideos(fallback));
       };
 
       try {
         const { data: authData } = await supabase.auth.getUser();
         const currentUid = authData?.user?.id || currentUserId || '00000000-0000-0000-0000-000000000000';
-
-        // 🚀 Fetch active boosted campaigns directly from lounge_shorts
-        let boostedShortIds: string[] = [];
-        try {
-          const { data: boostedShorts } = await supabase
-            .from('lounge_shorts')
-            .select('id, is_boosted, boost_expires_at')
-            .eq('is_boosted', true);
-          if (boostedShorts) {
-            const now = Date.now();
-            boostedShortIds = boostedShorts
-              .filter((s: any) => {
-                if (!s.is_boosted) return false;
-                if (!s.boost_expires_at) return true; // Legacy fallback
-                return new Date(s.boost_expires_at).getTime() > now;
-              })
-              .map((s: any) => s.id)
-              .filter(Boolean);
-          }
-        } catch (err) {
-          console.warn("Could not query lounge_shorts for boosted status directly:", err);
-        }
 
         const { data, error } = await supabase
           .from('lounge_shorts')
@@ -288,22 +266,14 @@ export function LoungeShortsFeed({
             );
             return hasVideoUrl && isNotTest;
           });
-          // 🎲 DYNAMIC VERIFIED-FIRST SHUFFLE: Verified creators stay at top (shuffled), followed by standard creators (shuffled)
-          const sortedVerifiedFirst = sortVerifiedFirstShuffled(mapped);
-          const mixed = interleaveVideos(sortedVerifiedFirst);
-
-          // 🚀 Prioritize active boosted clips at the top of the feed matrix with random shuffling
-          let finalMixed = mixed;
-          if (boostedShortIds.length > 0) {
-            const boostedSet = new Set(boostedShortIds);
-            const boostedVideos = mixed.filter(p => boostedSet.has(p.id));
-            const regularVideos = mixed.filter(p => !boostedSet.has(p.id));
-            finalMixed = [...shuffleArray(boostedVideos), ...regularVideos];
-          }
+          // 🎲 DYNAMIC FULL RANDOM SHUFFLE: Fully shuffle all videos so top videos move randomly on every page load
+          const mixed = interleaveVideos(mapped);
+          const finalMixed = shuffleArray(mixed);
 
           if (finalMixed.length === 0) {
             console.warn("⚠️ Database query returned zero filtered lounge shorts. Loading static fallback assets...");
-            finalMixed = getStaticFallbackFeed();
+            setPosts(getStaticFallbackFeed());
+            return;
           }
 
           setPosts(finalMixed);
@@ -386,22 +356,14 @@ export function LoungeShortsFeed({
               );
               return hasVideoUrl && isNotTest;
             });
-            // 🎲 DYNAMIC VERIFIED-FIRST SHUFFLE: Verified creators stay at top (shuffled), followed by standard creators (shuffled)
-            const sortedVerifiedFirst = sortVerifiedFirstShuffled(mapped);
-            const mixed = interleaveVideos(sortedVerifiedFirst);
-
-            // 🚀 Prioritize active boosted clips at the top of the feed matrix
-            let finalMixed = mixed;
-            if (boostedShortIds.length > 0) {
-              const boostedSet = new Set(boostedShortIds);
-              const boostedVideos = mixed.filter(p => boostedSet.has(p.id));
-              const regularVideos = mixed.filter(p => !boostedSet.has(p.id));
-              finalMixed = [...shuffleArray(boostedVideos), ...regularVideos];
-            }
+            // 🎲 DYNAMIC FULL RANDOM SHUFFLE: Fully shuffle all videos so top videos move randomly on every page load
+            const mixed = interleaveVideos(mapped);
+            const finalMixed = shuffleArray(mixed);
 
             if (finalMixed.length === 0) {
               console.warn("⚠️ Fallback database query returned zero filtered lounge shorts. Loading static fallback assets...");
-              finalMixed = getStaticFallbackFeed();
+              setPosts(getStaticFallbackFeed());
+              return;
             }
 
             setPosts(finalMixed);
@@ -420,20 +382,21 @@ export function LoungeShortsFeed({
             localStorage.setItem('cached_lounge_feed', JSON.stringify(finalFallback));
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Critical error in fetchAllFeedData:", err);
         console.warn("Network issue detected. Falling back to offline media cache...");
         
-        // 🔌 Fallback: Load the previous session loops if offline
+        // 🔌 Fallback: Load the previous session loops if offline, reshuffling on load
         const offlineBackup = localStorage.getItem('cached_lounge_feed');
         if (offlineBackup) {
           try {
-            const parsed = JSON.parse(offlineBackup);
-            setPosts(parsed);
-            if (parsed.length > 0) {
-              setActiveVideoId(parsed[0].id);
+            const parsed: any[] = JSON.parse(offlineBackup);
+            const reshuffled = shuffleArray(parsed);
+            setPosts(reshuffled);
+            if (reshuffled.length > 0) {
+              setActiveVideoId(reshuffled[0].id);
             }
-          } catch (e) {
+          } catch (e: any) {
             console.error("Error parsing cached feed, loading static fallback:", e);
             const finalFallback = getStaticFallbackFeed();
             setPosts(finalFallback);
