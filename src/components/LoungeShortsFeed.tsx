@@ -633,7 +633,7 @@ export function LoungeShortsFeed({
               </div>
 
               {/* ── 📍 FEED FILTER & LOCAL CITY SEARCH SYSTEM TOOLBAR ── */}
-              <div className="mb-6 bg-zinc-950/80 p-3 rounded-2xl border border-zinc-900/80 backdrop-blur-md space-y-3">
+              <div className="relative z-50 mb-6 bg-zinc-950/90 p-3 rounded-2xl border border-zinc-900/80 backdrop-blur-md space-y-3 shadow-xl">
                 {/* Feed Navigation Tabs */}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800/60">
@@ -683,7 +683,7 @@ export function LoungeShortsFeed({
                   </div>
 
                   {/* 🔍 Search Bar & Location Pinned Cities Dropdown */}
-                  <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <div className="relative z-50 flex items-center gap-2.5 w-full sm:w-auto">
                     {/* Search Bar matching dark UI theme */}
                     <div className="relative flex items-center">
                       <Search className="absolute left-3 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
@@ -692,7 +692,7 @@ export function LoungeShortsFeed({
                         value={creatorSearchQuery}
                         onChange={(e) => setCreatorSearchQuery(e.target.value)}
                         placeholder="Search creators..."
-                        className="bg-[#121214] border border-zinc-800 text-zinc-200 text-xs rounded-xl pl-9 pr-7 py-1.5 focus:outline-none focus:border-pink-500 transition-colors w-36 sm:w-52 placeholder:text-zinc-500"
+                        className="bg-[#121214] border border-zinc-800 text-zinc-200 text-xs rounded-xl pl-9 pr-7 py-2 focus:outline-none focus:border-pink-500 transition-colors w-36 sm:w-52 placeholder:text-zinc-500"
                       />
                       {creatorSearchQuery && (
                         <button
@@ -706,15 +706,15 @@ export function LoungeShortsFeed({
                     </div>
 
                     {/* Location Search / Pinned Cities Dropdown Toggle */}
-                    <div className="relative">
+                    <div className="relative z-50">
                       <button
                         type="button"
                         onClick={() => setShowLocationDropdown(!showLocationDropdown)}
-                        className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-pink-500/50 text-xs px-3 py-1.5 rounded-xl text-zinc-200 flex items-center gap-2 transition cursor-pointer font-medium select-none"
+                        className="bg-[#121214] hover:bg-zinc-900 border border-zinc-800 hover:border-pink-500/50 text-xs px-4 py-2 rounded-xl text-zinc-200 flex items-center gap-2 transition cursor-pointer font-medium select-none shadow-sm"
                       >
-                        <MapPin className="w-3.5 h-3.5 text-pink-500" />
-                        <span>{selectedCity === 'All' ? 'Filter Pinned City' : `📍 ${selectedCity}`}</span>
-                        <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+                        <MapPin className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                        <span className="truncate max-w-[120px]">{selectedCity === 'All' ? 'Filter Pinned City' : `📍 ${selectedCity}`}</span>
+                        <ChevronDown className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                       </button>
 
                     {/* Dropdown Menu & Location Search Input */}
