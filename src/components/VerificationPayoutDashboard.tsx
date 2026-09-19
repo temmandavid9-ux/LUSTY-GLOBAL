@@ -585,21 +585,35 @@ export default function VerificationPayoutDashboard({
                     </button>
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-zinc-100 flex items-center gap-1">
+                    <h4 className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
                       @{profile?.username || userProfile.username}
-                      {isVerified && (
-                        <svg 
-                          viewBox="0 0 24 24" 
-                          className="w-3.5 h-3.5 text-[#1d9bf0] fill-current drop-shadow-[0_0_6px_rgba(29,155,240,0.4)] shrink-0"
-                          aria-label="Verified creator"
-                        >
-                          <path d="M22.25 12c0-1.43-.88-2.67-2.15-3.21.15-.44.24-.91.24-1.4 0-2.2-1.72-4-3.83-4-.48 0-.94.1-1.35.27C14.56 2.39 13.38 1.5 12 1.5s-2.56.89-3.16 2.16c-.41-.17-.87-.27-1.35-.27-2.11 0-3.83 1.8-3.83 4 0 .49.09.96.24 1.4-1.27.54-2.15 1.78-2.15 3.21 0 1.43.88 2.67 2.15 3.21-.15.44-.24.91-.24 1.4 0 2.2 1.72 4 3.83 4 .48 0 .94-.1 1.35-.27.6 1.27 1.78 2.16 3.16 2.16s2.56-.89 3.16-2.16c.41.17.87.27 1.35.27 2.11 0 3.83-1.8 3.83-4 0-.49-.09-.96-.24-1.4 1.27-.54 2.15-1.78 2.15-3.21zm-12.5 4L6 12.25l1.5-1.5 2.25 2.25L16.25 6.5l1.5 1.5-8 8z" />
-                        </svg>
-                      )}
                     </h4>
-                    <span className="text-[9px] bg-pink-500/10 text-pink-400 border border-pink-500/20 px-1.5 py-0.5 rounded font-mono uppercase font-bold tracking-wider">
-                      {isVerified ? "VIP verified host" : "Standard Tier"}
-                    </span>
+
+                    <div className="mt-1">
+                      {isVerified ? (
+                        <span className="inline-flex items-center text-pink-500 bg-pink-500/10 px-2 py-0.5 rounded-full text-[10px] font-semibold gap-1 border border-pink-500/20">
+                          <span className="text-pink-400 font-bold">✓</span> Verified Creator
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowProfileDetails(false);
+                            const el = document.getElementById('prestige-badge-portal-section');
+                            if (el) el.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                          className="inline-flex items-center gap-1.5 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 hover:text-white px-2.5 py-1 rounded-full text-[10px] font-medium transition-all border border-zinc-700/60 shadow-sm group cursor-pointer"
+                        >
+                          <span className="text-sky-400 group-hover:scale-110 transition-transform">
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
+                            </svg>
+                          </span>
+                          <span>Get verified</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 

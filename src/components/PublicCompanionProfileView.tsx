@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { CreatorVideoCatalog } from './CreatorVideoCatalog';
-import VerifiedBadge from './VerifiedBadge';
+import { VerifyProfileModal } from './VerifyProfileModal';
 import { 
   X, MapPin, MessageSquare, Calendar, 
   Info, Film, Star, Languages, Clock, ShieldCheck, Heart 
@@ -41,57 +41,60 @@ export function PublicCompanionProfileView({
   const [isBooking, setIsBooking] = useState<boolean>(false);
   const [showHostBookingModal, setShowHostBookingModal] = useState<boolean>(false);
   const [bookingFeedback, setBookingFeedback] = useState<{ type: 'success' | 'error' | 'card_required'; message: string } | null>(null);
+  
+  // Verification Modal state
+  const [showVerifyModal, setShowVerifyModal] = useState<boolean>(false);
 
   useEffect(() => {
     setActiveTab(defaultTab);
   }, [defaultTab, hostId]);
 
-  useEffect(() => {
+  const loadFullProfile = useCallback(async () => {
     if (!hostId) return;
 
-    async function loadFullProfile() {
-      try {
-        setIsLoading(true);
-        // Load profile
-        const { data, error } = await supabase
-          .from('profiles')
+    try {
+      setIsLoading(true);
+      // Load profile
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', hostId)
+        .maybeSingle();
+
+      if (error) throw error;
+      setProfile(data);
+
+      // Check if current user is following this companion
+      if (currentUserId && currentUserId !== hostId) {
+        const { data: followData } = await supabase
+          .from('followers')
           .select('*')
-          .eq('id', hostId)
+          .eq('follower_id', currentUserId)
+          .eq('following_id', hostId)
           .maybeSingle();
 
-        if (error) throw error;
-        setProfile(data);
-
-        // Check if current user is following this companion
-        if (currentUserId && currentUserId !== hostId) {
-          const { data: followData } = await supabase
-            .from('followers')
-            .select('*')
-            .eq('follower_id', currentUserId)
-            .eq('following_id', hostId)
-            .maybeSingle();
-
-          setIsFollowing(!!followData);
-        }
-
-        // Get followers count
-        const { count, error: countError } = await supabase
-          .from('followers')
-          .select('*', { count: 'exact', head: true })
-          .eq('following_id', hostId);
-
-        if (!countError && count !== null) {
-          setFollowersCount(count + 42); // base seed for UI polish
-        }
-      } catch (err) {
-        console.error("Error loading companion public profile:", err);
-      } finally {
-        setIsLoading(false);
+        setIsFollowing(!!followData);
       }
-    }
 
-    loadFullProfile();
+      // Get followers count
+      const { count, error: countError } = await supabase
+        .from('followers')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_id', hostId);
+
+      if (!countError && count !== null) {
+        setFollowersCount(count + 42); // base seed for UI polish
+      }
+    } catch (err) {
+      console.error("Error loading companion public profile:", err);
+    } finally {
+      setIsLoading(false);
+    }
   }, [hostId, currentUserId]);
+
+  useEffect(() => {
+    loadFullProfile();
+  }, [loadFullProfile]);
 
   const handleFollowToggle = async () => {
     if (!currentUserId || isProcessingFollow) return;
@@ -475,27 +478,49 @@ export function PublicCompanionProfileView({
           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-black/40" />
 
           {/* User profile identifier */}
-          <div className="absolute bottom-4 left-4 flex items-end gap-3.5">
-            <div className="w-18 h-18 rounded-full border-2 border-pink-500 p-0.5 bg-zinc-950 overflow-hidden aspect-square flex items-center justify-center relative">
-              <img 
-                src={profile.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'} 
-                alt={profile.username} 
-                referrerPolicy="no-referrer"
-                className="w-full h-full rounded-full object-cover"
-              />
-              {isOnline && (
-                <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-zinc-950 rounded-full" />
-              )}
-            </div>
-
-            <div className="pb-1">
-              <div className="flex items-center gap-1.5">
-                <h2 className="text-lg font-black text-white">@{profile.username}</h2>
-                {profile.is_verified && <VerifiedBadge variant="blue" size={16} />}
+          <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3 flex-wrap">
+            <div className="flex items-end gap-3.5">
+              <div className="w-18 h-18 rounded-full border-2 border-pink-500 p-0.5 bg-zinc-950 overflow-hidden aspect-square flex items-center justify-center relative shrink-0 shadow-xl">
+                <img 
+                  src={profile.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'} 
+                  alt={profile.username} 
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full rounded-full object-cover"
+                />
+                {isOnline && (
+                  <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-zinc-950 rounded-full" />
+                )}
               </div>
-              <p className="text-[10px] text-zinc-400 font-mono uppercase tracking-widest mt-0.5">
-                {profile.tier_badge || 'VERIFIED COMPANION'}
-              </p>
+
+              <div className="flex flex-col gap-1 pb-1">
+                {/* Display Name and Verification Badge / Action */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-xl md:text-2xl font-bold text-white tracking-wide">
+                    {profile.displayName || profile.name || profile.username || "Creator Name"}
+                  </h1>
+
+                  {(profile.isVerified || profile.is_verified || profile.tier_badge === 'VIP SELECT') ? (
+                    <span className="inline-flex items-center text-pink-500 bg-pink-500/10 px-2.5 py-1 rounded-full text-xs font-semibold gap-1 border border-pink-500/20">
+                      ✓ Verified Creator
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowVerifyModal(true)}
+                      className="inline-flex items-center gap-1.5 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 hover:text-white px-3 py-1.5 rounded-full text-xs font-medium transition-all border border-zinc-700 shadow-sm group cursor-pointer"
+                    >
+                      <span className="text-sky-400">
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
+                        </svg>
+                      </span>
+                      <span>Get verified</span>
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-zinc-400 text-sm">@{profile.username || "username"}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -745,6 +770,16 @@ export function PublicCompanionProfileView({
             hourlyRate={profile?.hourly_rate || profile?.ratePerHour || 250.00}
             hostAvatar={profile?.avatar || profile?.avatar_url}
             onClose={() => setShowHostBookingModal(false)}
+          />
+        )}
+
+        {showVerifyModal && (
+          <VerifyProfileModal
+            currentUserId={currentUserId || hostId}
+            onClose={() => {
+              setShowVerifyModal(false);
+              loadFullProfile();
+            }}
           />
         )}
 
