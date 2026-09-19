@@ -206,7 +206,14 @@ export function InstallPWABanner() {
         <div id="pwa-install-banner" className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:max-w-md bg-zinc-950/95 backdrop-blur-xl border border-pink-500/40 p-4 rounded-2xl flex items-center justify-between z-50 shadow-2xl shadow-pink-950/40 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="flex items-center gap-3">
             <div className="relative shrink-0">
-              <img src="/icon-192.png" alt="Lusty VIP Logo" loading="eager" decoding="async" className="w-10 h-10 rounded-xl border border-pink-500/50 object-cover shadow-md" />
+              <img 
+                src="/logo.svg" 
+                alt="Lusty VIP Logo" 
+                loading="eager" 
+                decoding="async" 
+                className="w-10 h-10 rounded-xl border border-pink-500/50 object-contain p-0.5 shadow-md bg-zinc-900" 
+                onError={(e) => { (e.target as HTMLImageElement).src = '/icon-192.png'; }}
+              />
               <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-zinc-950" />
             </div>
             <div>
@@ -251,7 +258,12 @@ export function InstallPWABanner() {
             </button>
 
             <div className="flex items-center gap-3">
-              <img src="/icon-192.png" alt="Lusty VIP Icon" className="w-12 h-12 rounded-2xl border border-pink-500/50 shadow-lg object-cover" />
+              <img 
+                src="/logo.svg" 
+                alt="Lusty VIP Icon" 
+                className="w-12 h-12 rounded-2xl border border-pink-500/50 shadow-lg object-contain p-1 bg-zinc-900" 
+                onError={(e) => { (e.target as HTMLImageElement).src = '/icon-192.png'; }}
+              />
               <div>
                 <h3 className="text-base font-black text-white font-mono uppercase tracking-wide">Install Lusty VIP PWA</h3>
                 <p className="text-xs text-pink-400 font-mono">Manual Web App Installation Guide</p>
