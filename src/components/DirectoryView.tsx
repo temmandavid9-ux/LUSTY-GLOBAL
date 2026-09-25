@@ -747,7 +747,10 @@ export default function DirectoryView({
         <p className="font-mono text-[11px] text-zinc-500">
           © {new Date().getFullYear()} Lusty Global VIP Directory. All rights reserved.
         </p>
-        <SupportEmailLink />
+        <div className="flex items-center gap-2 font-mono text-[11px]">
+          <span className="text-zinc-500">Customer Support Email:</span>
+          <SupportEmailLink />
+        </div>
       </footer>
 
     </div>

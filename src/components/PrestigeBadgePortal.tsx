@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Loader2, ShieldCheck, ChevronRight } from 'lucide-react';
-import SupportEmailLink from './SupportEmailLink';
 
 export default function PrestigeBadgePortal({ 
   currentUserId, 
@@ -124,13 +123,6 @@ export default function PrestigeBadgePortal({
               </>
             )}
           </button>
-
-          <div className="mt-3 flex justify-center">
-            <SupportEmailLink 
-              subject="Lusty Global Badge Activation Support"
-              className="text-[11px] text-zinc-500 hover:text-sky-400 opacity-80 hover:opacity-100"
-            />
-          </div>
         </div>
       </div>
     </div>

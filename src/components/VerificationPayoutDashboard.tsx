@@ -21,6 +21,7 @@ import { LustyGlobalLogo } from './LustyGlobalLogo';
 import { formatMetricCount } from '../utils/formatMetrics';
 import { HostLinkGenerator } from './HostLinkGenerator';
 import PrestigeBadgePortal from './PrestigeBadgePortal';
+import SupportEmailLink from './SupportEmailLink';
 import { useHostSettlements } from '../hooks/useHostSettlements';
 
 interface VerificationPayoutDashboardProps {
@@ -1254,10 +1255,11 @@ export default function VerificationPayoutDashboard({
           <ShieldCheck className="w-3.5 h-3.5 text-pink-500" />
           <span>Security Protocol: <span className="text-zinc-400">Secure Custody E2EE</span></span>
         </div>
-        <div className="flex items-center gap-[10px]">
+        <div className="flex items-center gap-[10px] flex-wrap justify-center">
           <span>© 2026 LUSTY GLOBAL VIP Platform</span>
           <span className="h-1 w-1 bg-zinc-700 rounded-full" />
-          <span>Transactions direct to multi-network bank nodes</span>
+          <span className="text-zinc-500">Customer Support Email:</span>
+          <SupportEmailLink />
         </div>
       </div>
 

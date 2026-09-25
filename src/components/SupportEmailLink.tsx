@@ -14,10 +14,10 @@ export default function SupportEmailLink({
   return (
     <a
       href={mailtoUrl}
-      className={`flex items-center gap-2 text-xs text-zinc-400 hover:text-sky-400 transition font-mono ${className}`}
+      className={`inline-flex items-center gap-1.5 text-xs text-zinc-300 hover:text-sky-400 transition font-mono ${className}`}
     >
-      <Mail className="w-4 h-4 text-sky-400" />
-      <span>{email}</span>
+      <Mail className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+      <span className="underline decoration-zinc-700 underline-offset-2 hover:decoration-sky-400">{email}</span>
     </a>
   );
 }

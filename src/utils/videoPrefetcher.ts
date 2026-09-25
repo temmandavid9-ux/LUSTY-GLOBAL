@@ -1,19 +1,9 @@
 import { getSafeVideoUrl } from './videoUtils';
 
-/**
- * 📹 VIDEO PREFETCHING UTILITY FOR SHORTS FEED SYSTEM
- * 
- * Buffers the next two videos in the feed queue to ensure instant, zero-latency playback
- * when scrolling, while keeping the currently active video playing smoothly.
- */
-
 class VideoPrefetcher {
   private cache: Map<string | number, HTMLVideoElement> = new Map();
-  private maxCacheSize: number = 8;
+  private maxCacheSize: number = 6; // Reduced max cache to limit socket pressure
 
-  /**
-   * Prefetch and buffer the next N videos (default: 2) in the queue
-   */
   public prefetchNextVideos(
     videos: Array<{ id: string | number; video_url?: string }>,
     currentIndex: number,
@@ -32,7 +22,12 @@ class VideoPrefetcher {
 
         if (videoUrl) {
           if (!this.cache.has(videoId)) {
-            this.preloadVideoUrl(videoId, videoUrl);
+            // Stagger preloads slightly to prevent hitting QUIC protocol limits all at once
+            setTimeout(() => {
+              if (!this.cache.has(videoId)) {
+                this.preloadVideoUrl(videoId, videoUrl);
+              }
+            }, i * 150); 
           }
           prefetchedIds.push(videoId);
         }
@@ -43,9 +38,6 @@ class VideoPrefetcher {
     return prefetchedIds;
   }
 
-  /**
-   * Instantiate background HTMLVideoElement to buffer video bytes into browser media cache
-   */
   private preloadVideoUrl(id: string | number, rawUrl: string): void {
     if (typeof window === 'undefined') return;
 
@@ -53,46 +45,39 @@ class VideoPrefetcher {
 
     try {
       const videoEl = document.createElement('video');
-      videoEl.preload = 'auto';
+      videoEl.preload = 'metadata'; // Changed from 'auto' to 'metadata' to prevent massive chunk downloads upfront!
       videoEl.muted = true;
       videoEl.playsInline = true;
       videoEl.crossOrigin = 'anonymous';
       videoEl.src = safeUrl;
 
       videoEl.onerror = () => {
-        console.warn(`[VideoPrefetcher] Preload error for video [${id}]: ${safeUrl}`);
+        console.warn(`[VideoPrefetcher] Preload error for video [${id}]`);
         this.cache.delete(id);
       };
 
-      // Trigger background buffering
       videoEl.load();
-
       this.cache.set(id, videoEl);
-      console.log(`[VideoPrefetcher] 🚀 Prefetched & buffered video queue item [${id}] (${safeUrl})`);
     } catch (err) {
       console.warn(`[VideoPrefetcher] Preload failed for video [${id}]:`, err);
     }
   }
 
-  /**
-   * Prunes old cached video elements outside the active window to conserve memory
-   */
   private pruneCache(
     videos: Array<{ id: string | number }>,
     currentIndex: number
   ): void {
     if (this.cache.size <= this.maxCacheSize) return;
 
-    // Keep active video plus next 4 items in cache
     const activeAndNextIds = new Set(
-      videos.slice(Math.max(0, currentIndex - 1), currentIndex + 5).map(v => v.id)
+      videos.slice(Math.max(0, currentIndex - 1), currentIndex + 3).map(v => v.id)
     );
 
     for (const [id, videoEl] of this.cache.entries()) {
       if (!activeAndNextIds.has(id)) {
         videoEl.pause();
-        videoEl.removeAttribute('src');
-        videoEl.load();
+        videoEl.src = '';
+        videoEl.load(); // Forces socket termination
         this.cache.delete(id);
       }
     }
@@ -101,7 +86,7 @@ class VideoPrefetcher {
   public clear(): void {
     for (const [, videoEl] of this.cache.entries()) {
       videoEl.pause();
-      videoEl.removeAttribute('src');
+      videoEl.src = '';
       videoEl.load();
     }
     this.cache.clear();
