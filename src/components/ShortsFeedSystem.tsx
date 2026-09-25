@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { LoungeShortsFeed } from './LoungeShortsFeed';
 import { ReachAnalyticsPanel } from './ReachAnalyticsPanel';
-import { useVideoPrefetcher } from '../hooks/useVideoPrefetcher';
 
 interface ShortsFeedSystemProps {
   walletBalance?: number;
@@ -12,38 +11,24 @@ interface ShortsFeedSystemProps {
 export default function ShortsFeedSystem({ walletBalance: _walletBalance = 1450.00, onSpendFunds: _onSpendFunds, currentUserId }: ShortsFeedSystemProps) {
   // Keep only 'feed' and 'analytics' tabs, defaulting to Lounge Broadcasts 'feed'
   const [activeTab, setActiveTab] = useState<'feed' | 'analytics'>('feed');
-  const [feedPosts, setFeedPosts] = useState<any[]>([]);
-
-  // 🚀 VIDEO PREFETCHING UTILITY: Buffers the next TWO videos in the feed queue for instant playback on scroll
-  const { preloadedVideoIds, prefetchQueue } = useVideoPrefetcher(2);
+  const [, setFeedPosts] = useState<any[]>([]);
 
   const handleShortsLoaded = useCallback((shorts: any[]) => {
     setFeedPosts(shorts);
-    if (shorts && shorts.length > 0) {
-      // Buffer the next 2 videos starting from index 0
-      prefetchQueue(shorts, 0);
-    }
-  }, [prefetchQueue]);
+  }, []);
 
-  const handleActiveVideoChange = useCallback((activeVideo: any) => {
-    if (!feedPosts || feedPosts.length === 0) return;
-    const currentIndex = feedPosts.findIndex(p => p.id === activeVideo.id);
-    if (currentIndex !== -1) {
-      prefetchQueue(feedPosts, currentIndex);
-    }
-  }, [feedPosts, prefetchQueue]);
+  const handleActiveVideoChange = useCallback((_activeVideo: any) => {
+    // Left empty intentionally — IntersectionObserver handles playback now
+  }, []);
 
   const handleActiveVideoProgress = useCallback((
-    currentIndex: number,
+    _currentIndex: number,
     _currentVideoId: string | number,
     _progressPercent: number,
     _nextVideoId: string | number | null
   ) => {
-    // Continuously ensure the next 2 videos in the feed queue are buffered in background
-    if (feedPosts && feedPosts.length > 0) {
-      prefetchQueue(feedPosts, currentIndex);
-    }
-  }, [feedPosts, prefetchQueue]);
+    // Left empty intentionally — IntersectionObserver handles playback now
+  }, []);
 
   return (
     <div id="ShortsFeedSystem" className="w-full h-full bg-black relative flex flex-col">
@@ -82,7 +67,6 @@ export default function ShortsFeedSystem({ walletBalance: _walletBalance = 1450.
           <div className="w-full h-full">
             <LoungeShortsFeed 
               currentUserId={currentUserId} 
-              preloadedVideoIds={preloadedVideoIds}
               onShortsLoaded={handleShortsLoaded}
               onActiveVideoChange={handleActiveVideoChange}
               onActiveVideoProgress={handleActiveVideoProgress}
