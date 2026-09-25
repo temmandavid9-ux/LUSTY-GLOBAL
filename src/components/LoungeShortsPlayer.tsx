@@ -557,7 +557,11 @@ function LoungeShortsPlayerComponent({
     if (!isActive) return;
 
     async function checkFollowStatus() {
-      if (!currentUserId || !creatorId) return;
+      // GUARD: If the user is a guest, do NOT query Supabase!
+      if (!currentUserId || currentUserId === 'anonymous_lounge_guest' || !creatorId) {
+        setIsFollowing(false);
+        return;
+      }
       
       try {
         const { data, error } = await supabase
@@ -587,7 +591,9 @@ function LoungeShortsPlayerComponent({
 
   const handleFollowToggle = async () => {
     triggerMonetagEarning();
-    if (!currentUserId) {
+    // GUARD: If the user is a guest, stop and prompt them to log in instead of querying
+    if (!currentUserId || currentUserId === 'anonymous_lounge_guest') {
+      console.log("Guest tried to follow. Prompting login...");
       alert("Please sign in to follow this creator.");
       return;
     }

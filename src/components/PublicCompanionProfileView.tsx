@@ -65,7 +65,7 @@ export function PublicCompanionProfileView({
       setProfile(data);
 
       // Check if current user is following this companion
-      if (currentUserId && currentUserId !== hostId) {
+      if (currentUserId && currentUserId !== 'anonymous_lounge_guest' && currentUserId !== hostId) {
         const { data: followData } = await supabase
           .from('followers')
           .select('*')
@@ -97,7 +97,7 @@ export function PublicCompanionProfileView({
   }, [loadFullProfile]);
 
   const handleFollowToggle = async () => {
-    if (!currentUserId || isProcessingFollow) return;
+    if (!currentUserId || currentUserId === 'anonymous_lounge_guest' || isProcessingFollow) return;
     try {
       setIsProcessingFollow(true);
       if (isFollowing) {

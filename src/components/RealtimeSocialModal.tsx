@@ -40,7 +40,13 @@ export const RealtimeSocialModal: React.FC<RealtimeSocialModalProps> = ({
 
   // Fetch live social data from Supabase whenever effectiveUserId or isOpen changes
   useEffect(() => {
-    if (!isOpen || !effectiveUserId) return;
+    if (!isOpen || !effectiveUserId || effectiveUserId === 'anonymous_lounge_guest') {
+      setFans([]);
+      setFollowing([]);
+      setFriends([]);
+      setLoading(false);
+      return;
+    }
 
     let isMounted = true;
 
