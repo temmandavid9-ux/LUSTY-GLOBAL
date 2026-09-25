@@ -5,8 +5,8 @@ interface FeedPost {
   id: string | number;
   video_url: string;
   caption: string;
+  thumbnail_url?: string; // Optional thumbnail to hide the black flash
   username?: string;
-  avatar?: string;
 }
 
 interface PersistentFeedProps {
@@ -16,18 +16,24 @@ interface PersistentFeedProps {
 export const PersistentShortsFeed: React.FC<PersistentFeedProps> = ({ posts }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const currentPost = posts[activeIndex];
   const safeUrl = currentPost ? getSafeVideoUrl(currentPost.video_url, Number(currentPost.id) || 0) : '';
 
-  // 1. Manage single video source swapping and instant playback on index change (handles random jumps too)
+  // Reset readiness whenever active index/URL changes
+  useEffect(() => {
+    setIsVideoReady(false);
+  }, [activeIndex, safeUrl]);
+
+  // Manage single video source swapping and instant playback
   useEffect(() => {
     const videoEl = videoRef.current;
     if (!videoEl || !safeUrl) return;
 
-    // Update source dynamically without destroying the video element DOM node
     videoEl.src = safeUrl;
     videoEl.load();
 
@@ -43,7 +49,6 @@ export const PersistentShortsFeed: React.FC<PersistentFeedProps> = ({ posts }) =
     };
   }, [activeIndex, safeUrl]);
 
-  // 2. Track scroll position to update active index cleanly
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget;
     const scrollTop = container.scrollTop;
@@ -65,37 +70,42 @@ export const PersistentShortsFeed: React.FC<PersistentFeedProps> = ({ posts }) =
       onScroll={handleScroll}
       className="relative w-full h-screen overflow-y-scroll snap-y snap-mandatory bg-black no-scrollbar"
     >
-      {/* THE SINGLE PERSISTENT VIDEO PLAYER (Anchored once at the feed level, never unmounts) */}
-      <div className="absolute inset-0 z-0 pointer-events-none flex items-center justify-center">
+      {/* BACKGROUND VIDEO LAYER WITH THUMBNAIL FALLBACK */}
+      <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
+        {/* Thumbnail overlay hides the black screen until the video is ready to paint pixels */}
+        {currentPost?.thumbnail_url && !isVideoReady && (
+          <img 
+            src={currentPost.thumbnail_url} 
+            alt="Loading..." 
+            className="absolute inset-0 w-full h-full object-cover filter blur-sm scale-105"
+          />
+        )}
+
         <video
           ref={videoRef}
           playsInline
           muted={isMuted}
           loop
-          className="w-full h-full object-cover pointer-events-auto cursor-pointer"
+          onCanPlay={() => setIsVideoReady(true)}
+          className={`w-full h-full object-cover pointer-events-auto cursor-pointer transition-opacity duration-300 ${isVideoReady ? 'opacity-100' : 'opacity-0'}`}
           onClick={() => setIsMuted((prev) => !prev)}
         />
       </div>
 
-      {/* FEED CONTENT LAYERS (Metadata, captions, buttons scroll freely over the persistent video) */}
-      {posts.map((post, index) => {
-        const isActive = index === activeIndex;
-
-        return (
-          <div 
-            key={post.id} 
-            className={`w-full h-full snap-start relative flex flex-col justify-end p-6 z-10 pointer-events-none ${isActive ? 'opacity-100' : 'opacity-80'}`}
-          >
-            {/* Only render metadata for the active or nearby posts to keep DOM ultra-light */}
-            {Math.abs(index - activeIndex) <= 1 && (
-              <div className="pointer-events-auto text-white mb-12 max-w-[80%]">
-                <h3 className="font-bold text-lg mb-2">@{post.username || 'user'}</h3>
-                <p className="text-sm opacity-90">{post.caption}</p>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {/* FEED CONTENT LAYERS */}
+      {posts.map((post, index) => (
+        <div 
+          key={post.id} 
+          className="w-full h-full snap-start relative flex flex-col justify-end p-6 z-10 pointer-events-none"
+        >
+          {Math.abs(index - activeIndex) <= 1 && (
+            <div className="pointer-events-auto text-white mb-12 max-w-[80%]">
+              <h3 className="font-bold text-lg mb-2">@{post.username || 'user'}</h3>
+              <p className="text-sm opacity-90">{post.caption}</p>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 };
