@@ -239,12 +239,16 @@ export function useLiveShortInteractions(shortId: string | number, currentUserId
 
       // Record video view interaction explicitly in video_interactions table as requested
       try {
-        const fallbackUserId = currentUserId && currentUserId !== 'anonymous_lounge_guest' ? currentUserId : 'anonymous_lounge_guest';
+        // Guard: Skip logging to database if user is a guest
+        if (!currentUserId || currentUserId === 'anonymous_lounge_guest') {
+          return;
+        }
+
         const { error: interactionErr } = await supabase
           .from('video_interactions')
           .upsert([
             {
-              user_id: fallbackUserId,
+              user_id: currentUserId,
               video_id: String(shortId),
               interaction_type: 'view',
               created_at: new Date().toISOString()
@@ -257,7 +261,7 @@ export function useLiveShortInteractions(shortId: string | number, currentUserId
             .from('video_interactions')
             .insert([
               {
-                user_id: fallbackUserId,
+                user_id: currentUserId,
                 video_id: String(shortId),
                 interaction_type: 'view',
                 created_at: new Date().toISOString()

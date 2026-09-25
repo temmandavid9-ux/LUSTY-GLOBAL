@@ -65,7 +65,7 @@ export const RealtimeSocialModal: React.FC<RealtimeSocialModalProps> = ({
 
             // Check if current user is following back each fan
             let myFollowingSet = new Set<string>();
-            if (currentUserId) {
+            if (currentUserId && currentUserId !== 'anonymous_lounge_guest') {
               const { data: myFollowingData } = await supabase
                 .from('user_followers')
                 .select('following_id')
@@ -181,7 +181,7 @@ export const RealtimeSocialModal: React.FC<RealtimeSocialModalProps> = ({
 
   // Toggle follow / unfollow on Supabase
   const handleToggleFollow = async (user: SocialUserProfile, listType: 'fans' | 'following') => {
-    if (!currentUserId) return;
+    if (!currentUserId || currentUserId === 'anonymous_lounge_guest') return;
 
     if (listType === 'fans') {
       const willFollow = !user.isFollowingBack;
@@ -227,7 +227,7 @@ export const RealtimeSocialModal: React.FC<RealtimeSocialModalProps> = ({
   // Remove connection on Supabase
   const handleRemoveConnection = async (friendId: string) => {
     setFriends(prev => prev.filter(f => f.id !== friendId));
-    if (!currentUserId) return;
+    if (!currentUserId || currentUserId === 'anonymous_lounge_guest') return;
 
     try {
       await supabase
