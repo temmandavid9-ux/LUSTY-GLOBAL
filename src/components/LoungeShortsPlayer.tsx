@@ -71,8 +71,8 @@ function LoungeShortsPlayerComponent({
   isActive = true,
   isMuted: isMutedProp,
   onMuteToggle,
-  isNext = false,
-  isAdjacent = false,
+  isNext: _isNext = false,
+  isAdjacent: _isAdjacent = false,
   onProgress
 }: ShortVideoPlayerProps) {
   const { triggerMonetagEarning } = useMonetagRevenue(3);
@@ -1690,16 +1690,16 @@ function LoungeShortsPlayerComponent({
         )
       )}
 
-      {/* 📹 Live Video Asset Player - Preloaded when active or adjacent in feed to optimize buffer states */}
-      {(isActive || isNext || isAdjacent) && (
+      {/* 📹 Live Video Asset Player - Rendered ONLY when the video is actively in view */}
+      {isActive && (
         <video 
           ref={videoRef}
-          src={isActive || isNext || isAdjacent || isIntersecting ? safeShortVideoUrl : undefined}
-          preload={isActive ? "auto" : "metadata"}
+          src={safeShortVideoUrl}
+          preload="auto"
           loop 
-          muted={!isActive || isMuted} 
+          muted={isMuted} 
           playsInline
-          autoPlay={isActive}
+          autoPlay
           controls={false}
           onContextMenu={handleContextMenu}
           crossOrigin="anonymous"
@@ -1757,7 +1757,7 @@ function LoungeShortsPlayerComponent({
               setMediaLoading(false);
             });
           }}
-          className={`absolute inset-0 w-full h-full object-cover z-10 cursor-pointer transition-opacity duration-500 ${mediaLoading || !isActive ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}
+          className={`absolute inset-0 w-full h-full object-cover z-10 cursor-pointer transition-opacity duration-500 ${mediaLoading ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}
           style={{ 
             filter: appliedFilterShaderStyle !== 'none' ? appliedFilterShaderStyle : (appliedFilterStyle !== 'none' ? appliedFilterStyle : undefined),
             width: '100%',
